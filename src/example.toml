@@ -1,0 +1,35 @@
+[monitor]
+name = "Example monitor"
+interval = 60
+
+[monitor.target]
+path = "path/to/executable"
+args = ["list", "of", "arguments"]
+env = [ ["var1", "value1"], ["var2", "value2"] ]
+
+[[monitor.level]]
+name = "info"
+errors_to_escalate = 1
+outputs = ["splunk"] 
+
+[[monitor.level]]
+name = "warn"
+errors_to_escalate = 1
+outputs = ["splunk", "slack"]
+
+[[monitor.level]]
+name = "alert"
+outputs = ["splunk", "slack", "pagerduty"]
+
+[splunk]
+index = "example_index"
+hec_token = "hec_token"
+endpoint = "endpoint_url"
+
+[slack]
+api_key = "api_key"
+endpoint = "endpoint_url"
+
+[pagerduty]
+api_key = "api_key"
+endpoint = "endpoint_url"
