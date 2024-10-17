@@ -1,13 +1,10 @@
-// use async_trait::async_trait;
+use async_trait::async_trait;
 use serde::Deserialize;
 use std::process::{Command, ExitStatus};
 
-pub struct Monitor<T>
-where
-    T: Reporter,
-{
+pub struct Monitor {
     pub name: String,
-    levels: Vec<Level<T>>,
+    levels: Vec<Level>,
     pub interval: u32,
     target: Target,
 }
@@ -20,10 +17,7 @@ pub struct MonitorArgs {
     pub target: TargetArgs,
 }
 
-impl<T> Monitor<T>
-where
-    T: Reporter,
-{
+impl Monitor {
     pub fn from_args(args: MonitorArgs) -> Self {
         let mut levels = Vec::new();
         for l in args.level.into_iter() {
@@ -38,13 +32,10 @@ where
     }
 }
 
-struct Level<T>
-where
-    T: Reporter,
-{
+struct Level {
     name: String,
     errors_to_escalate: Option<u32>,
-    reporters: Vec<Box<T>>,
+    reporters: Vec<Box<dyn Reporter>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -54,10 +45,7 @@ pub struct LevelArgs {
     reporters: Vec<String>,
 }
 
-impl<T> Level<T>
-where
-    T: Reporter,
-{
+impl Level {
     fn from_args(args: LevelArgs) -> Self {
         Self {
             name: args.name,
@@ -67,7 +55,7 @@ where
     }
 }
 
-struct Target {
+pub struct Target {
     pub path: String,
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
@@ -101,9 +89,9 @@ impl Target {
 
 pub type ReporterArgs = toml::Table;
 
-// #[async_trait]
+#[async_trait]
 pub trait Reporter {
-    async fn report(&self, _: MonitorResult);
+    async fn report(self, _: MonitorResult);
     fn format(&self, _: MonitorResult) -> String;
 }
 
