@@ -19,52 +19,11 @@ struct Cli {
 }
 
 #[derive(Deserialize, Debug)]
-struct MonitorArgs {
-    name: String,
-    interval: u32,
-    level: Vec<LevelArgs>,
-    target: TargetArgs,
-}
-
-#[derive(Deserialize, Debug)]
-struct LevelArgs {
-    name: String,
-    errors_to_escalate: Option<u32>,
-    outputs: Vec<String>,
-}
-
-#[derive(Deserialize, Debug)]
-struct TargetArgs {
-    path: String,
-    args: Vec<String>,
-    env: Vec<(String, String)>,
-}
-
-#[derive(Deserialize, Debug)]
-struct SplunkArgs {
-    index: String,
-    hec_token: String,
-    endpoint: String,
-}
-
-#[derive(Deserialize, Debug)]
-struct SlackArgs {
-    api_key: String,
-    endpoint: String,
-}
-
-#[derive(Deserialize, Debug)]
-struct PagerdutyArgs {
-    api_key: String,
-    endpoint: String,
-}
-
-#[derive(Deserialize, Debug)]
 struct Config {
-    monitor: MonitorArgs,
-    splunk: Option<SplunkArgs>,
-    slack: Option<SlackArgs>,
-    pagerduty: Option<PagerdutyArgs>,
+    monitor: monitor::MonitorArgs,
+    splunk: Option<monitor::ReporterArgs>,
+    slack: Option<monitor::ReporterArgs>,
+    pagerduty: Option<monitor::ReporterArgs>,
 }
 
 fn parse_config(path: String) -> Config {
@@ -74,5 +33,6 @@ fn parse_config(path: String) -> Config {
 
 fn main() {
     let cli_args = Cli::parse();
-    dbg!(parse_config(cli_args.config));
+    let config = parse_config(cli_args.config);
+    dbg!(config);
 }
