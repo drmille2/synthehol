@@ -5,6 +5,8 @@ use std::process::{Command, ExitStatus};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use tracing::event;
+use tracing::Level as tLevel;
 
 pub struct Monitor {
     pub name: String,
@@ -43,9 +45,13 @@ impl Monitor {
 
     pub fn register_reporter(&mut self, name: &str, rep: Box<dyn Reporter>) {
         self.reporters.insert(name.to_string().to_lowercase(), rep);
+        let msg = format!("registered reporter {0}", name);
+        event!(tLevel::INFO, msg);
     }
 
     pub async fn start(&mut self) {
+        let msg = format!("starting monitor {0}", self.name);
+        event!(tLevel::INFO, msg);
         loop {
             let res = self.run();
             if !res.status.success() {
@@ -78,6 +84,12 @@ impl Monitor {
 
     fn incr_failure(&mut self) {
         self.failure_tally += 1;
+        let msg = format!(
+            "incrementing failure count (was {0}, now {1})",
+            self.failure_tally - 1,
+            self.failure_tally
+        );
+        event!(tLevel::INFO, msg);
         let l = &self.levels[self.level_index as usize];
         if let Some(esc) = l.errors_to_escalate {
             if esc <= self.failure_tally {
@@ -90,11 +102,18 @@ impl Monitor {
         if self.level_index + 1 < self.levels.len() as u64 {
             self.level_index += 1;
         }
+        let msg = format!(
+            "escalated monitor level (was {0}, now {1})",
+            self.levels[self.level_index as usize - 1].name,
+            self.levels[self.level_index as usize].name,
+        );
+        event!(tLevel::INFO, msg);
     }
 
     fn reset(&mut self) {
         self.level_index = 0;
         self.failure_tally = 0;
+        event!(tLevel::INFO, "reset monitor level & failure count");
     }
 
     async fn report(&self, res: &MonitorResult) {
@@ -180,6 +199,8 @@ impl Target {
             duration,
             status,
         };
+        let msg = format!("invoked monitor target \"{0}\"", self.path);
+        event!(tLevel::INFO, msg);
         dbg!(&out);
         out
     }

@@ -1,6 +1,8 @@
 use crate::monitor::{MonitorResult, Reporter};
 use async_trait::async_trait;
 use slack_morphism::prelude::*;
+use tracing::event;
+use tracing::Level as tLevel;
 use url::Url;
 
 pub struct SlackReporter<'a> {
@@ -28,7 +30,6 @@ impl<'a> Reporter for SlackReporter<'a> {
         (self.formatter)(output)
     }
     async fn report(&self, output: &MonitorResult) {
-        dbg!(output);
         let slack_message = self.format(output);
         dbg!(&slack_message);
         let client = SlackClient::new(SlackClientHyperConnector::new().unwrap());
@@ -41,5 +42,6 @@ impl<'a> Reporter for SlackReporter<'a> {
             )
             .await
             .unwrap();
+        event!(tLevel::INFO, "processed monitor result via slack reporter");
     }
 }

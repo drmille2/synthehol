@@ -3,14 +3,14 @@ name = "Example monitor"
 interval = 60
 
 [monitor.target]
-path = "path/to/executable"
-args = ["list", "of", "arguments"]
+path = "echo"
+args = ["synthetic monitor test output"]
 env = [ ["var1", "value1"], ["var2", "value2"] ]
 
 [[monitor.level]]
 name = "info"
 errors_to_escalate = 1
-reporters = ["splunk"] 
+reporters = ["splunk", "slack"] 
 
 [[monitor.level]]
 name = "warn"
@@ -27,7 +27,7 @@ hec_token = "hec_token"
 endpoint = "endpoint_url"
 
 [slack]
-webhook_url = "slack webhook url"
+webhook_url = "https://hooks.slack.com/services/AaBbCcDd"
 
 [pagerduty]
 api_key = "api_key"
