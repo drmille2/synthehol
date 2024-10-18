@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::process::{Command, ExitStatus};
+use std::thread;
+use std::time::Duration;
 use std::time::Instant;
 
 pub struct Monitor {
@@ -32,19 +34,28 @@ impl Monitor {
             name: args.name,
             interval: args.interval,
             levels,
-            reporters: HashMap::new(), // add reporters here
+            reporters: HashMap::new(),
             level_index: 0,
             failure_tally: 0,
             target: Target::from_args(args.target),
         }
     }
 
-    pub fn register_reporter(&mut self, name: String, rep: Box<dyn Reporter>) {
-        self.reporters.insert(name, rep);
+    pub fn register_reporter(&mut self, name: &str, rep: Box<dyn Reporter>) {
+        self.reporters.insert(name.to_string(), rep);
     }
 
-    pub fn start(&mut self) -> Result<(), ()> {
-        Ok(())
+    pub fn start(&mut self) {
+        loop {
+            let res = self.run();
+            if !res.status.success() {
+                self.incr_failure();
+            } else {
+                self.reset();
+            }
+            self.report(&res);
+            thread::sleep(Duration::from_secs(self.interval - res.duration));
+        }
     }
 
     fn run(&self) -> MonitorResult {
@@ -56,6 +67,7 @@ impl Monitor {
         } = self.target.run();
         MonitorResult {
             name: self.name.clone(),
+            level_name: self.levels[self.level_index as usize].name.clone(),
             stdout,
             stderr,
             duration,
@@ -89,7 +101,7 @@ impl Monitor {
         let l = &self.levels[self.level_index as usize];
         for k in l.reporters.iter() {
             if let Some(r) = &self.reporters.get(k) {
-                let _ = r.report(res); // Probably needs to be async and awaited
+                let _ = r.report(res); // Probably needs to be async
             }
         }
     }
@@ -176,6 +188,7 @@ pub trait Reporter {
 
 pub struct MonitorResult {
     pub name: String,
+    pub level_name: String,
     pub stdout: String,
     pub stderr: String,
     pub duration: u64,
@@ -186,6 +199,7 @@ pub struct MonitorResult {
 impl MonitorResult {
     pub fn new(
         name: String,
+        level_name: String,
         stdout: String,
         stderr: String,
         duration: u64,
@@ -194,6 +208,7 @@ impl MonitorResult {
     ) -> Self {
         Self {
             name,
+            level_name,
             stdout,
             stderr,
             duration,
