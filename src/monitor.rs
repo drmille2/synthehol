@@ -5,15 +5,17 @@ use std::time::Instant;
 
 pub struct Monitor {
     pub name: String,
+    pub interval: u64,
     levels: Vec<Level>,
-    pub interval: u32,
+    level_index: u64,
+    failure_tally: u64,
     target: Target,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct MonitorArgs {
     pub name: String,
-    pub interval: u32,
+    pub interval: u64,
     pub level: Vec<LevelArgs>,
     pub target: TargetArgs,
 }
@@ -26,35 +28,69 @@ impl Monitor {
         }
         Self {
             name: args.name,
-            levels,
-            target: Target::from_args(args.target),
             interval: args.interval,
+            levels,
+            level_index: 0,
+            failure_tally: 0,
+            target: Target::from_args(args.target),
         }
     }
 
     pub fn run(&self) -> MonitorResult {
-        let output = self.target.run();
+        // let output = self.target.run();
+        let TargetOutput {
+            stdout,
+            stderr,
+            duration,
+            status,
+        } = self.target.run();
         MonitorResult {
             name: self.name.clone(),
-            stdout: output.stdout,
-            stderr: output.stderr,
-            duration: output.duration,
-            status: output.status,
+            stdout,
+            stderr,
+            duration,
+            status,
             tags: None,
+        }
+    }
+
+    pub fn incr_failure(&mut self) {
+        self.failure_tally += 1;
+        let l = &self.levels[self.level_index as usize];
+        if let Some(esc) = l.errors_to_escalate {
+            if esc <= self.failure_tally {
+                self.escalate()
+            }
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.level_index = 0;
+        self.failure_tally = 0;
+    }
+
+    pub fn report(&self, res: &MonitorResult) {
+        let l = &self.levels[self.level_index as usize];
+        l.report(res)
+    }
+
+    fn escalate(&mut self) {
+        if self.level_index + 1 < self.levels.len() as u64 {
+            self.level_index += 1;
         }
     }
 }
 
 struct Level {
     name: String,
-    errors_to_escalate: Option<u32>,
+    errors_to_escalate: Option<u64>,
     reporters: Vec<Box<dyn Reporter>>,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct LevelArgs {
     name: String,
-    errors_to_escalate: Option<u32>,
+    errors_to_escalate: Option<u64>,
     reporters: Vec<String>,
 }
 
@@ -67,9 +103,9 @@ impl Level {
         }
     }
 
-    fn report(&self, res: MonitorResult) {
+    fn report(&self, res: &MonitorResult) {
         for n in self.reporters.iter() {
-            n.report(&res);
+            n.report(res);
         }
     }
 }
