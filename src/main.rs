@@ -10,7 +10,7 @@ use serde::Deserialize;
 #[command(
     author = "David Miller",
     version = "v0.1.0",
-    about = "Synthehol (easily replicated synthetic monitoring)"
+    about = "Synthehol (easily replicable synthetic monitoring)"
 )]
 
 struct Cli {
@@ -34,5 +34,6 @@ fn parse_config(path: String) -> Config {
 fn main() {
     let cli_args = Cli::parse();
     let config = parse_config(cli_args.config);
-    dbg!(config);
+    dbg!(&config);
+    let mon = monitor::Monitor::from_args(config.monitor);
 }

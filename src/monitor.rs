@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::process::{Command, ExitStatus};
 use std::time::Instant;
 
@@ -7,6 +8,7 @@ pub struct Monitor {
     pub name: String,
     pub interval: u64,
     levels: Vec<Level>,
+    reporters: HashMap<String, Box<dyn Reporter>>,
     level_index: u64,
     failure_tally: u64,
     target: Target,
@@ -30,14 +32,22 @@ impl Monitor {
             name: args.name,
             interval: args.interval,
             levels,
+            reporters: HashMap::new(), // add reporters here
             level_index: 0,
             failure_tally: 0,
             target: Target::from_args(args.target),
         }
     }
 
-    pub fn run(&self) -> MonitorResult {
-        // let output = self.target.run();
+    pub fn register_reporter(&mut self, name: String, rep: Box<dyn Reporter>) {
+        self.reporters.insert(name, rep);
+    }
+
+    pub fn start(&mut self) -> Result<(), ()> {
+        Ok(())
+    }
+
+    fn run(&self) -> MonitorResult {
         let TargetOutput {
             stdout,
             stderr,
@@ -54,7 +64,7 @@ impl Monitor {
         }
     }
 
-    pub fn incr_failure(&mut self) {
+    fn incr_failure(&mut self) {
         self.failure_tally += 1;
         let l = &self.levels[self.level_index as usize];
         if let Some(esc) = l.errors_to_escalate {
@@ -64,19 +74,23 @@ impl Monitor {
         }
     }
 
-    pub fn reset(&mut self) {
+    fn escalate(&mut self) {
+        if self.level_index + 1 < self.levels.len() as u64 {
+            self.level_index += 1;
+        }
+    }
+
+    fn reset(&mut self) {
         self.level_index = 0;
         self.failure_tally = 0;
     }
 
-    pub fn report(&self, res: &MonitorResult) {
+    fn report(&self, res: &MonitorResult) {
         let l = &self.levels[self.level_index as usize];
-        l.report(res)
-    }
-
-    fn escalate(&mut self) {
-        if self.level_index + 1 < self.levels.len() as u64 {
-            self.level_index += 1;
+        for k in l.reporters.iter() {
+            if let Some(r) = &self.reporters.get(k) {
+                let _ = r.report(res); // Probably needs to be async and awaited
+            }
         }
     }
 }
@@ -84,7 +98,7 @@ impl Monitor {
 struct Level {
     name: String,
     errors_to_escalate: Option<u64>,
-    reporters: Vec<Box<dyn Reporter>>,
+    reporters: Vec<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -99,13 +113,7 @@ impl Level {
         Self {
             name: args.name,
             errors_to_escalate: args.errors_to_escalate,
-            reporters: Vec::new(), // TODO: do the reporters
-        }
-    }
-
-    fn report(&self, res: &MonitorResult) {
-        for n in self.reporters.iter() {
-            n.report(res);
+            reporters: args.reporters,
         }
     }
 }
