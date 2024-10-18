@@ -35,7 +35,6 @@ fn parse_config(path: String) -> Config {
 async fn main() {
     let cli_args = Cli::parse();
     let config = parse_config(cli_args.config);
-    dbg!(&config);
     let mut mon = monitor::Monitor::from_args(config.monitor);
     if let Some(r) = config.slack {
         let slack = outputs::initialize_slack(r);

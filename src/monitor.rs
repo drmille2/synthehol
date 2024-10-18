@@ -53,9 +53,6 @@ impl Monitor {
             } else {
                 self.reset();
             }
-            dbg!(format!("Result: {0:?}", &res));
-            dbg!(format!("Level: {0}", self.level_index));
-            dbg!(format!("Failures: {0}", self.failure_tally));
             self.report(&res).await;
             thread::sleep(Duration::from_secs(self.interval - res.duration));
         }
@@ -103,14 +100,9 @@ impl Monitor {
     async fn report(&self, res: &MonitorResult) {
         let l = &self.levels[self.level_index as usize];
         for k in l.reporters.iter() {
-            dbg!("Checking reporter:", k);
             let k_l = k.clone().to_lowercase();
             if let Some(r) = &self.reporters.get(&k_l) {
-                dbg!(&res);
-                r.report(res).await; // Probably needs to be async
-            } else {
-                dbg!("skipping");
-                dbg!(self.reporters.keys());
+                r.report(res).await;
             }
         }
     }
