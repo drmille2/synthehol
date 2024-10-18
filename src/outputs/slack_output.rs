@@ -10,7 +10,7 @@ pub struct SlackReporter<'a> {
 
 unsafe impl<'a> Sync for SlackReporter<'a> {}
 
-type Formatter = dyn Fn(MonitorResult) -> String + Sync;
+type Formatter = dyn Fn(&MonitorResult) -> String + Sync;
 
 impl<'a> SlackReporter<'a> {
     pub fn from_toml(config: toml::Table, formatter: &'a Formatter) -> Self {
@@ -24,10 +24,10 @@ impl<'a> SlackReporter<'a> {
 
 #[async_trait]
 impl<'a> Reporter for SlackReporter<'a> {
-    fn format(&self, output: MonitorResult) -> String {
+    fn format(&self, output: &MonitorResult) -> String {
         (self.formatter)(output)
     }
-    async fn report(self, output: MonitorResult) {
+    async fn report(&self, output: &MonitorResult) {
         let slack_message = self.format(output);
         let client = SlackClient::new(SlackClientHyperConnector::new().unwrap());
         client
@@ -40,12 +40,4 @@ impl<'a> Reporter for SlackReporter<'a> {
             .await
             .unwrap();
     }
-}
-
-pub fn default_formatter(res: MonitorResult) -> String {
-    let target = res.target.path;
-    let result = res.result;
-    let stdout = res.stdout;
-    let stderr = res.stderr;
-    format!("Result for {target}:\nstatus: {result}\nstdout: {stdout}\nstderr: {stderr}")
 }

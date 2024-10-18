@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 use std::process::{Command, ExitStatus};
+use std::time::Instant;
 
 pub struct Monitor {
     pub name: String,
@@ -30,6 +31,18 @@ impl Monitor {
             interval: args.interval,
         }
     }
+
+    pub fn run(&self) -> MonitorResult {
+        let output = self.target.run();
+        MonitorResult {
+            name: self.name.clone(),
+            stdout: output.stdout,
+            stderr: output.stderr,
+            duration: output.duration,
+            status: output.status,
+            tags: None,
+        }
+    }
 }
 
 struct Level {
@@ -53,12 +66,18 @@ impl Level {
             reporters: Vec::new(), // TODO: do the reporters
         }
     }
+
+    fn report(&self, res: MonitorResult) {
+        for n in self.reporters.iter() {
+            n.report(&res);
+        }
+    }
 }
 
-pub struct Target {
-    pub path: String,
-    pub args: Vec<String>,
-    pub env: Vec<(String, String)>,
+struct Target {
+    path: String,
+    args: Vec<String>,
+    env: Vec<(String, String)>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -66,6 +85,13 @@ pub struct TargetArgs {
     pub path: String,
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
+}
+
+struct TargetOutput {
+    stdout: String,
+    stderr: String,
+    duration: u64,
+    status: ExitStatus,
 }
 
 impl Target {
@@ -77,13 +103,22 @@ impl Target {
         }
     }
 
-    fn run(self) -> MonitorResult {
+    fn run(&self) -> TargetOutput {
         let env = self.env.clone();
+        let start = Instant::now();
         let mut cmd = Command::new(&self.path);
         let output = cmd.args(&self.args).envs(env).output().unwrap(); // TODO: handle it
+        let stop = Instant::now();
+        let duration = (stop - start).as_secs();
+        let status = output.status;
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        MonitorResult::new(stdout, stderr, 0, output.status, self, None)
+        TargetOutput {
+            stdout,
+            stderr,
+            duration,
+            status,
+        }
     }
 }
 
@@ -91,34 +126,34 @@ pub type ReporterArgs = toml::Table;
 
 #[async_trait]
 pub trait Reporter {
-    async fn report(self, _: MonitorResult);
-    fn format(&self, _: MonitorResult) -> String;
+    async fn report(&self, _: &MonitorResult);
+    fn format(&self, _: &MonitorResult) -> String;
 }
 
 pub struct MonitorResult {
+    pub name: String,
     pub stdout: String,
     pub stderr: String,
-    pub duration: u32,
-    pub result: ExitStatus,
-    pub target: Target,
+    pub duration: u64,
+    pub status: ExitStatus,
     pub tags: Option<Vec<(String, String)>>,
 }
 
 impl MonitorResult {
     pub fn new(
+        name: String,
         stdout: String,
         stderr: String,
-        duration: u32,
-        result: ExitStatus,
-        target: Target,
+        duration: u64,
+        status: ExitStatus,
         tags: Option<Vec<(String, String)>>,
     ) -> Self {
         Self {
+            name,
             stdout,
             stderr,
             duration,
-            result,
-            target,
+            status,
             tags,
         }
     }
