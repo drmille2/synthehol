@@ -42,10 +42,10 @@ impl Monitor {
     }
 
     pub fn register_reporter(&mut self, name: &str, rep: Box<dyn Reporter>) {
-        self.reporters.insert(name.to_string(), rep);
+        self.reporters.insert(name.to_string().to_lowercase(), rep);
     }
 
-    pub fn start(&mut self) {
+    pub async fn start(&mut self) {
         loop {
             let res = self.run();
             if !res.status.success() {
@@ -53,7 +53,10 @@ impl Monitor {
             } else {
                 self.reset();
             }
-            self.report(&res);
+            dbg!(format!("Result: {0:?}", &res));
+            dbg!(format!("Level: {0}", self.level_index));
+            dbg!(format!("Failures: {0}", self.failure_tally));
+            self.report(&res).await;
             thread::sleep(Duration::from_secs(self.interval - res.duration));
         }
     }
@@ -97,16 +100,23 @@ impl Monitor {
         self.failure_tally = 0;
     }
 
-    fn report(&self, res: &MonitorResult) {
+    async fn report(&self, res: &MonitorResult) {
         let l = &self.levels[self.level_index as usize];
         for k in l.reporters.iter() {
-            if let Some(r) = &self.reporters.get(k) {
-                let _ = r.report(res); // Probably needs to be async
+            dbg!("Checking reporter:", k);
+            let k_l = k.clone().to_lowercase();
+            if let Some(r) = &self.reporters.get(&k_l) {
+                dbg!(&res);
+                r.report(res).await; // Probably needs to be async
+            } else {
+                dbg!("skipping");
+                dbg!(self.reporters.keys());
             }
         }
     }
 }
 
+#[derive(Debug)]
 struct Level {
     name: String,
     errors_to_escalate: Option<u64>,
@@ -130,6 +140,7 @@ impl Level {
     }
 }
 
+#[derive(Debug)]
 struct Target {
     path: String,
     args: Vec<String>,
@@ -143,6 +154,7 @@ pub struct TargetArgs {
     pub env: Vec<(String, String)>,
 }
 
+#[derive(Debug)]
 struct TargetOutput {
     stdout: String,
     stderr: String,
@@ -169,12 +181,15 @@ impl Target {
         let status = output.status;
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        TargetOutput {
+
+        let out = TargetOutput {
             stdout,
             stderr,
             duration,
             status,
-        }
+        };
+        dbg!(&out);
+        out
     }
 }
 
@@ -186,6 +201,7 @@ pub trait Reporter {
     fn format(&self, _: &MonitorResult) -> String;
 }
 
+#[derive(Debug)]
 pub struct MonitorResult {
     pub name: String,
     pub level_name: String,
@@ -194,26 +210,4 @@ pub struct MonitorResult {
     pub duration: u64,
     pub status: ExitStatus,
     pub tags: Option<Vec<(String, String)>>,
-}
-
-impl MonitorResult {
-    pub fn new(
-        name: String,
-        level_name: String,
-        stdout: String,
-        stderr: String,
-        duration: u64,
-        status: ExitStatus,
-        tags: Option<Vec<(String, String)>>,
-    ) -> Self {
-        Self {
-            name,
-            level_name,
-            stdout,
-            stderr,
-            duration,
-            status,
-            tags,
-        }
-    }
 }

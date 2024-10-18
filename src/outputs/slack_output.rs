@@ -28,7 +28,9 @@ impl<'a> Reporter for SlackReporter<'a> {
         (self.formatter)(output)
     }
     async fn report(&self, output: &MonitorResult) {
+        dbg!(output);
         let slack_message = self.format(output);
+        dbg!(&slack_message);
         let client = SlackClient::new(SlackClientHyperConnector::new().unwrap());
         client
             .post_webhook_message(

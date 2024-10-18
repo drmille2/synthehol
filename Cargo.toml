@@ -13,3 +13,4 @@ slack-morphism = { version = "2.5.0", features = ["hyper"] }
 url = "2.5.2"
 hyper-util = { version = "0.1.9", features = ["client-legacy"] }
 async-trait = "0.1.83"
+tokio = { version = "1", features = ["full"] }

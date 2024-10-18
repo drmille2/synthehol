@@ -31,7 +31,8 @@ fn parse_config(path: String) -> Config {
     toml::from_str(input).unwrap()
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli_args = Cli::parse();
     let config = parse_config(cli_args.config);
     dbg!(&config);
@@ -40,5 +41,5 @@ fn main() {
         let slack = outputs::initialize_slack(r);
         mon.register_reporter("Slack", slack);
     }
-    mon.start();
+    mon.start().await;
 }
