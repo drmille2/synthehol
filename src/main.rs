@@ -30,8 +30,8 @@ struct Config {
 }
 
 fn parse_config(path: String) -> Config {
-    let input = &fs::read_to_string(path).unwrap();
-    toml::from_str(input).expect("Unable to parse configuration file")
+    let input = &fs::read_to_string(path).expect("failed to read configuration file");
+    toml::from_str(input).expect("failed to parse configuration file")
 }
 
 #[tokio::main]
@@ -52,7 +52,7 @@ async fn main() {
 
         // initialize and register slack reporter if configured
         if let Some(r) = &config.slack {
-            let slack = outputs::initialize_slack(r);
+            let slack = outputs::initialize_slack(r).expect("Failed to initialize Slack reporter");
             mon.register_reporter("Slack", slack);
         }
 
