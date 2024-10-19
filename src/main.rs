@@ -2,6 +2,7 @@ mod monitor;
 mod outputs;
 
 use std::fs;
+use std::future;
 
 use clap::Parser;
 use serde::Deserialize;
@@ -22,10 +23,10 @@ struct Cli {
 
 #[derive(Deserialize, Debug)]
 struct Config {
-    monitor: monitor::MonitorArgs,
-    splunk: Option<monitor::ReporterArgs>,
+    monitor: Vec<monitor::MonitorArgs>,
+    // splunk: Option<monitor::ReporterArgs>,
     slack: Option<monitor::ReporterArgs>,
-    pagerduty: Option<monitor::ReporterArgs>,
+    // pagerduty: Option<monitor::ReporterArgs>,
 }
 
 fn parse_config(path: String) -> Config {
@@ -38,14 +39,31 @@ async fn main() {
     tracing_subscriber::fmt().init();
     let cli_args = Cli::parse();
     let config = parse_config(cli_args.config);
+    dbg!(&config);
 
-    let msg = format!("config parsed for monitor{0}", config.monitor.name);
-    event!(tLevel::INFO, msg);
-    let mut mon = monitor::Monitor::from_args(config.monitor);
-    if let Some(r) = config.slack {
-        let slack = outputs::initialize_slack(r);
+    // parse all our monitor configs
+    // there's some duplicated work with the reporters being
+    // initialized separately for each monitor and copied here
+    let mut mons = Vec::new();
+    for m in config.monitor {
+        let msg = format!("config parsed for monitor{0}", m.name);
+        event!(tLevel::INFO, msg);
+        let mut mon = monitor::Monitor::from_args(m);
 
-        mon.register_reporter("Slack", slack);
+        // initialize and register slack reporter if configured
+        if let Some(r) = &config.slack {
+            let slack = outputs::initialize_slack(r);
+            mon.register_reporter("Slack", slack);
+        }
+
+        mons.push(mon);
     }
-    mon.start().await;
+
+    // spawn monitor loops and do nothing
+    for mut m in mons {
+        tokio::spawn(async move { m.start().await });
+    }
+
+    let future = future::pending();
+    let () = future.await;
 }

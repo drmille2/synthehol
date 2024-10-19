@@ -10,25 +10,26 @@ pub struct SlackReporter<'a> {
     formatter: &'a Formatter,
 }
 
-unsafe impl<'a> Sync for SlackReporter<'a> {}
-
 type Formatter = dyn Fn(&MonitorResult) -> String + Sync;
 
 impl<'a> SlackReporter<'a> {
-    pub fn from_toml(config: toml::Table, formatter: &'a Formatter) -> Self {
+    pub fn from_toml(config: &toml::Table, formatter: &'a Formatter) -> Self {
         let webhook_url: Url = Url::parse(config["webhook_url"].as_str().unwrap()).unwrap();
+        dbg!(&webhook_url);
         Self {
             webhook_url,
             formatter,
         }
     }
-}
-
-#[async_trait]
-impl<'a> Reporter for SlackReporter<'a> {
     fn format(&self, output: &MonitorResult) -> String {
         (self.formatter)(output)
     }
+}
+unsafe impl Send for SlackReporter<'static> {}
+unsafe impl Sync for SlackReporter<'static> {}
+
+#[async_trait]
+impl Reporter for SlackReporter<'static> {
     async fn report(&self, output: &MonitorResult) {
         let slack_message = self.format(output);
         dbg!(&slack_message);
