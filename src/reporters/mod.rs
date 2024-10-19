@@ -1,4 +1,4 @@
-mod slack_output;
+mod slack_reporter;
 
 use crate::monitor::{Reporter, ReporterArgs};
 
@@ -8,7 +8,7 @@ use tracing::Level as tLevel;
 pub fn initialize_slack(
     args: &ReporterArgs,
 ) -> Result<Box<dyn Reporter + Send + Sync + 'static>, String> {
-    let out = Box::new(slack_output::SlackReporter::from_toml(args, &|x| {
+    let out = Box::new(slack_reporter::SlackReporter::from_toml(args, &|x| {
         let name = x.name.clone();
         let result = x.status;
         let stdout = x.stdout.clone();

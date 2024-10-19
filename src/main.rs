@@ -1,5 +1,5 @@
 mod monitor;
-mod outputs;
+mod reporters;
 
 use std::fs;
 use std::future;
@@ -52,7 +52,8 @@ async fn main() {
 
         // initialize and register slack reporter if configured
         if let Some(r) = &config.slack {
-            let slack = outputs::initialize_slack(r).expect("Failed to initialize Slack reporter");
+            let slack =
+                reporters::initialize_slack(r).expect("Failed to initialize Slack reporter");
             mon.register_reporter("Slack", slack);
         }
 
