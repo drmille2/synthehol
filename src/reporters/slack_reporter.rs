@@ -21,7 +21,7 @@ impl<'a> SlackReporter<'a> {
         let webhook_url: Url =
             // same thing but wraps the existing error
             Url::parse(c).map_err(|e| format!("error parsing webhook_url {0}", e))?;
-        dbg!(&webhook_url);
+        // dbg!(&webhook_url);
         Ok(Self {
             webhook_url,
             formatter,
@@ -38,7 +38,7 @@ unsafe impl Sync for SlackReporter<'static> {}
 impl Reporter for SlackReporter<'static> {
     async fn report(&self, output: &MonitorResult) {
         let slack_message = self.format(output);
-        dbg!(&slack_message);
+        // dbg!(&slack_message);
         let connector = SlackClientHyperConnector::new();
         match connector {
             Ok(c) => {
