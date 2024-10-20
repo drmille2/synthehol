@@ -14,6 +14,7 @@ pub struct Monitor {
     pub name: String,
     pub interval: u64,
     levels: Vec<Level>,
+    // reporters: HashMap<String, Box<dyn Reporter>>,
     reporters: HashMap<String, Box<dyn Reporter + Send + Sync + 'static>>,
     level_index: u64,
     failure_tally: u64,
