@@ -95,6 +95,8 @@ impl Monitor {
                 stderr: r.stderr,
                 duration: r.duration,
                 status: r.status,
+                target: self.target.path.clone(),
+                args: self.target.args.clone(),
                 // tags: None,
             }),
             Err(e) => Err(e),
@@ -254,6 +256,8 @@ pub trait Reporter {
 pub struct MonitorResult {
     pub name: String,
     pub level_name: String,
+    pub target: String,
+    pub args: Vec<String>,
     pub stdout: String,
     pub stderr: String,
     pub duration: u64,
