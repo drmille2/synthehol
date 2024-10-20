@@ -57,38 +57,46 @@ impl Monitor {
     }
 
     /// Begin monitoring and reporting loop, does not terminate
-    /// TODO: add a .stop()
+    /// TODO: add a .stop() method
     pub async fn start(&mut self) {
         let msg = format!("starting monitor {0}", self.name);
         event!(tLevel::INFO, msg);
+        let mut sleep = Duration::new(0, 0);
         loop {
             let res = self.run();
-            if !res.status.success() {
-                self.incr_failure();
-            } else {
-                self.reset();
+            match res {
+                Ok(r) => {
+                    if !r.status.success() {
+                        self.incr_failure();
+                    } else {
+                        self.reset();
+                    }
+                    self.report(&r).await;
+                    sleep = Duration::from_secs(self.interval) - Duration::from_micros(r.duration);
+                }
+                Err(e) => {
+                    event!(tLevel::WARN, e);
+                }
             }
-            self.report(&res).await;
-            thread::sleep(Duration::from_secs(self.interval) - Duration::from_micros(res.duration));
+
+            thread::sleep(sleep);
         }
     }
 
     /// Run a single execution of the monitor target
-    fn run(&self) -> MonitorResult {
-        let TargetOutput {
-            stdout,
-            stderr,
-            duration,
-            status,
-        } = self.target.run();
-        MonitorResult {
-            name: self.name.clone(),
-            level_name: self.levels[self.level_index as usize].name.clone(),
-            stdout,
-            stderr,
-            duration,
-            status,
-            tags: None,
+    fn run(&self) -> Result<MonitorResult, String> {
+        let res = self.target.run();
+        match res {
+            Ok(r) => Ok(MonitorResult {
+                name: self.name.clone(),
+                level_name: self.levels[self.level_index as usize].name.clone(),
+                stdout: r.stdout,
+                stderr: r.stderr,
+                duration: r.duration,
+                status: r.status,
+                // tags: None,
+            }),
+            Err(e) => Err(e),
         }
     }
 
@@ -204,11 +212,15 @@ impl Target {
     }
 
     /// Run the target, returning duration and other execution details
-    fn run(&self) -> TargetOutput {
+    fn run(&self) -> Result<TargetOutput, String> {
         let env = self.env.clone();
         let start = Instant::now();
         let mut cmd = Command::new(&self.path);
-        let output = cmd.args(&self.args).envs(env).output().unwrap(); // TODO: handle it
+        let output = cmd
+            .args(&self.args)
+            .envs(env)
+            .output()
+            .map_err(|e| format!("failed to run target ({0})", e))?; // TODO: handle it
         let stop = Instant::now();
         let duration = (stop - start).as_micros() as u64;
         let status = output.status;
@@ -223,8 +235,8 @@ impl Target {
         };
         let msg = format!("invoked monitor target \"{0}\"", self.path);
         event!(tLevel::INFO, msg);
-        dbg!(&out);
-        out
+        // dbg!(&out);
+        Ok(out)
     }
 }
 
@@ -245,5 +257,5 @@ pub struct MonitorResult {
     pub stderr: String,
     pub duration: u64,
     pub status: ExitStatus,
-    pub tags: Option<Vec<(String, String)>>,
+    // pub tags: Option<Vec<(String, String)>>,
 }

@@ -39,7 +39,7 @@ async fn main() {
     tracing_subscriber::fmt().init();
     let cli_args = Cli::parse();
     let config = parse_config(cli_args.config);
-    dbg!(&config);
+    // dbg!(&config);
 
     // parse all our monitor configs
     // there's some duplicated work with the reporters being
@@ -50,7 +50,7 @@ async fn main() {
         event!(tLevel::INFO, msg);
         let mut mon = monitor::Monitor::from_args(m);
 
-        // initialize and register slack reporter if configured
+        // initialize and register slack reporter if configured, panics on failure
         if let Some(r) = &config.slack {
             let slack =
                 reporters::initialize_slack(r).expect("Failed to initialize Slack reporter");

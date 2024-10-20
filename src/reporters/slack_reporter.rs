@@ -5,15 +5,15 @@ use tracing::event;
 use tracing::Level as tLevel;
 use url::Url;
 
-pub struct SlackReporter<'a> {
+pub struct SlackReporter {
     webhook_url: Url,
-    formatter: &'a Formatter,
+    formatter: &'static Formatter,
 }
 
-type Formatter = dyn Fn(&MonitorResult) -> String + Sync;
+type Formatter = dyn Fn(&MonitorResult) -> SlackMessageContent + Sync;
 
-impl<'a> SlackReporter<'a> {
-    pub fn from_toml(config: &toml::Table, formatter: &'a Formatter) -> Result<Self, String> {
+impl SlackReporter {
+    pub fn from_toml(config: &toml::Table, formatter: &'static Formatter) -> Result<Self, String> {
         let c = config["webhook_url"]
             .as_str()
             // this maps option to our expected result so we can ?
@@ -27,17 +27,17 @@ impl<'a> SlackReporter<'a> {
             formatter,
         })
     }
-    fn format(&self, output: &MonitorResult) -> String {
+    fn format(&self, output: &MonitorResult) -> SlackMessageContent {
         (self.formatter)(output)
     }
 }
-unsafe impl Send for SlackReporter<'static> {}
-unsafe impl Sync for SlackReporter<'static> {}
+unsafe impl Send for SlackReporter {}
+unsafe impl Sync for SlackReporter {}
 
 #[async_trait]
-impl Reporter for SlackReporter<'static> {
+impl Reporter for SlackReporter {
     async fn report(&self, output: &MonitorResult) {
-        let slack_message = self.format(output);
+        let slack_content = self.format(output);
         // dbg!(&slack_message);
         let connector = SlackClientHyperConnector::new();
         match connector {
@@ -46,16 +46,13 @@ impl Reporter for SlackReporter<'static> {
                 let res = client
                     .post_webhook_message(
                         &self.webhook_url,
-                        &SlackApiPostWebhookMessageRequest::new(
-                            SlackMessageContent::new().with_text(slack_message),
-                        ),
+                        &SlackApiPostWebhookMessageRequest::new(slack_content),
                     )
                     .await;
                 if let Err(e) = res {
                     let msg = format!("Slack webhook POST failed ({0})", e);
                     event!(tLevel::WARN, msg);
                 }
-                // .unwrap();
                 event!(tLevel::INFO, "processed monitor result via slack reporter");
             }
             Err(e) => {
