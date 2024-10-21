@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::{Command, ExitStatus};
 use std::thread;
@@ -14,7 +14,6 @@ pub struct Monitor {
     pub name: String,
     pub interval: u64,
     levels: Vec<Level>,
-    // reporters: HashMap<String, Box<dyn Reporter>>,
     reporters: HashMap<String, Box<dyn Reporter + Send + Sync + 'static>>,
     level_index: u64,
     failure_tally: u64,
@@ -67,7 +66,7 @@ impl Monitor {
             let res = self.run();
             match res {
                 Ok(r) => {
-                    if !r.status.success() {
+                    if r.status == 0 {
                         self.incr_failure();
                     } else {
                         self.reset();
@@ -88,17 +87,20 @@ impl Monitor {
     fn run(&self) -> Result<MonitorResult, String> {
         let res = self.target.run();
         match res {
-            Ok(r) => Ok(MonitorResult {
-                name: self.name.clone(),
-                level_name: self.levels[self.level_index as usize].name.clone(),
-                stdout: r.stdout,
-                stderr: r.stderr,
-                duration: r.duration,
-                status: r.status,
-                target: self.target.path.clone(),
-                args: self.target.args.clone(),
-                // tags: None,
-            }),
+            Ok(r) => {
+                let args = self.target.args.clone().join(",");
+                Ok(MonitorResult {
+                    name: self.name.clone(),
+                    level_name: self.levels[self.level_index as usize].name.clone(),
+                    stdout: r.stdout,
+                    stderr: r.stderr,
+                    duration: r.duration,
+                    status: r.status.code().unwrap_or(-1),
+                    target: self.target.path.clone(),
+                    args,
+                    // tags: None,
+                })
+            }
             Err(e) => Err(e),
         }
     }
@@ -252,15 +254,15 @@ pub trait Reporter {
     async fn report(&self, _: &MonitorResult);
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct MonitorResult {
     pub name: String,
     pub level_name: String,
     pub target: String,
-    pub args: Vec<String>,
+    pub args: String,
     pub stdout: String,
     pub stderr: String,
     pub duration: u64,
-    pub status: ExitStatus,
+    pub status: i32,
     // pub tags: Option<Vec<(String, String)>>,
 }

@@ -52,8 +52,10 @@ async fn main() {
 
         // initialize and register slack reporter if configured, panics on failure
         if let Some(r) = &config.slack {
-            let slack =
-                reporters::initialize_slack(r).expect("Failed to initialize Slack reporter");
+            let slack = Box::new(
+                reporters::slack_reporter::SlackReporter::from_toml(r)
+                    .expect("failed to initialize Slack reporter"),
+            );
             mon.register_reporter("Slack", slack);
         }
 
