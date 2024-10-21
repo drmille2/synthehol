@@ -12,7 +12,6 @@ pub struct SlackReporter {
 
 impl SlackReporter {
     pub fn from_toml(config: &toml::Table) -> Result<Self, String> {
-        // pub fn from_toml(config: &toml::Table, formatter: &'static Formatter) -> Result<Self, String> {
         let c = config["webhook_url"]
             .as_str()
             // this maps option to our expected result so we can ?
@@ -26,7 +25,7 @@ impl SlackReporter {
         if config.contains_key("template") {
             template = config["template"]
                 .as_str()
-                .expect("parse to convert Slack template top string")
+                .ok_or("parse to convert Slack template top string")?
                 .to_string();
         }
         let mut renderer = upon::Engine::new();
