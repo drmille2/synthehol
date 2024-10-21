@@ -1,4 +1,4 @@
-[monitor]
+[[monitor]]
 name = "Example monitor"
 interval = 60
 
