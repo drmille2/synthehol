@@ -49,20 +49,19 @@ async fn main() {
     // initialized separately for each monitor and copied here
     let mut mons = Vec::new();
     for m in config.monitor {
-        let msg = format!("config parsed for monitor{0}", m.name);
-        event!(tLevel::INFO, msg);
+        event!(tLevel::INFO, "config parsed for monitor: {}", m.name);
         let mut mon = monitor::Monitor::from_args(m);
 
         // initialize and register slack reporter if configured, panics on failure
         if let Some(r) = &config.slack {
             let slack =
-                Box::new(SlackReporter::from_toml(r).expect("failed to initialize Slack reporter"));
+                Box::new(SlackReporter::from_toml(r).expect("failed to initialize slack reporter"));
             mon.register_reporter("slack", slack);
         }
 
         if let Some(r) = &config.splunk {
             let splunk = Box::new(
-                SplunkReporter::from_toml(r).expect("failed to initialize Splunk reporter"),
+                SplunkReporter::from_toml(r).expect("failed to initialize splunk reporter"),
             );
             mon.register_reporter("splunk", splunk);
         }

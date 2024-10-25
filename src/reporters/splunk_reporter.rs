@@ -74,7 +74,7 @@ impl SplunkReporter {
 #[async_trait]
 impl Reporter for SplunkReporter {
     async fn report(&self, output: &MonitorResult) {
-        event!(tLevel::INFO, "Splunk reporter called");
+        event!(tLevel::INFO, "splunk reporter called");
         let client = reqwest::Client::new();
         let output = self.format(output);
         let res = client
@@ -85,10 +85,10 @@ impl Reporter for SplunkReporter {
             .send()
             .await;
         if let Err(e) = res {
-            event!(tLevel::ERROR, "Splunk report failed ({})", e);
+            event!(tLevel::ERROR, "splunk report failed ({})", e);
         } else {
             let out = res.unwrap();
-            event!(tLevel::INFO, "Splunk report successful ({})", out.status());
+            event!(tLevel::INFO, "splunk report successful ({})", out.status());
         }
     }
 

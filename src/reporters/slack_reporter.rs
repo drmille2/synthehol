@@ -72,14 +72,12 @@ impl SlackReporter {
                     )
                     .await;
                 if let Err(e) = res {
-                    let msg = format!("Slack webhook POST failed ({0})", e);
-                    event!(tLevel::WARN, msg);
+                    event!(tLevel::WARN, "sending to slack webhook failed ({})", e);
                 }
                 event!(tLevel::INFO, "processed monitor result via slack reporter");
             }
             Err(e) => {
-                let msg = format!("failed to create Slack connector ({0})", e);
-                event!(tLevel::WARN, msg);
+                event!(tLevel::WARN, "failed to create slack connector ({})", e);
             }
         }
     }

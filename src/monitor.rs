@@ -54,21 +54,19 @@ impl Monitor {
         rep: Box<dyn Reporter + Send + Sync + 'static>,
     ) {
         self.reporters.insert(name.to_string().to_lowercase(), rep);
-        let msg = format!("registered reporter {0}", name);
-        event!(tLevel::INFO, msg);
+        event!(tLevel::INFO, "registered reporter: {}", name);
     }
 
     /// Begin monitoring and reporting loop, does not terminate
     /// TODO: add a .stop() method
     pub async fn start(&mut self) {
-        let msg = format!("starting monitor {0}", self.name);
-        event!(tLevel::INFO, msg);
+        event!(tLevel::INFO, "starting monitor: {}", self.name);
         let mut sleep = Duration::new(0, 0);
         loop {
             let res = self.run();
             match res {
                 Ok(r) => {
-                    if r.status == 0 {
+                    if r.status != 0 {
                         self.incr_failure();
                     } else {
                         self.incr_success();
@@ -114,12 +112,6 @@ impl Monitor {
     /// Increment failure tally and escalate if needed
     fn incr_failure(&mut self) {
         self.failure_tally += 1;
-        // let msg = format!(
-        //     "incrementing failure count (was {0}, now {1})",
-        //     self.failure_tally - 1,
-        //     self.failure_tally
-        // );
-        // event!(tLevel::INFO, msg);
         event!(
             tLevel::INFO,
             "incrementing failure count (was {}, now {})",
@@ -136,6 +128,12 @@ impl Monitor {
 
     // Increment success tally and clear if needed
     fn incr_success(&mut self) {
+        // this will keep us from incrementing this indefinitely
+        // in cases where the monitor never fails
+        if self.level_index == 0 {
+            self.success_tally = 1;
+            return;
+        }
         self.success_tally += 1;
         event!(
             tLevel::INFO,
@@ -156,12 +154,12 @@ impl Monitor {
         if self.level_index + 1 < self.levels.len() as u64 {
             self.level_index += 1;
         }
-        let msg = format!(
-            "escalated monitor level (was {0}, now {1})",
+        event!(
+            tLevel::INFO,
+            "escalated monitor level (was {}, now {})",
             self.levels[self.level_index as usize - 1].name,
-            self.levels[self.level_index as usize].name,
+            self.levels[self.level_index as usize].name
         );
-        event!(tLevel::INFO, msg);
     }
 
     /// Used to reset level & failure tally after a successful monitor run
@@ -169,7 +167,11 @@ impl Monitor {
         self.level_index = 0;
         self.failure_tally = 0;
         self.success_tally = 0;
-        event!(tLevel::INFO, "reset monitor level & failure count");
+        event!(
+            tLevel::INFO,
+            "reset level & failure count for monitor: {}",
+            self.name
+        );
     }
 
     /// Dispatch all reporters based on current level
@@ -282,8 +284,7 @@ impl Target {
             duration,
             status,
         };
-        let msg = format!("invoked monitor target \"{0}\"", self.path);
-        event!(tLevel::INFO, msg);
+        event!(tLevel::INFO, "invoked monitor target: {}", self.path);
         // dbg!(&out);
         Ok(out)
     }
