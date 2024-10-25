@@ -65,12 +65,14 @@ impl Monitor {
         loop {
             let res = self.run();
             match res {
-                Ok(r) => {
+                Ok(mut r) => {
                     if r.status != 0 {
                         self.incr_failure();
                     } else {
                         self.incr_success();
                     }
+                    // this needs to be set after we increment the trigger result
+                    r.level_name = self.levels[self.level_index as usize].name.clone();
                     self.report(&r).await;
                     // this will only be true if we perform a reset()
                     if self.success_tally == 0 && self.failure_tally == 0 {
@@ -95,7 +97,8 @@ impl Monitor {
                 let args = self.target.args.clone().join(",");
                 Ok(MonitorResult {
                     name: self.name.clone(),
-                    level_name: self.levels[self.level_index as usize].name.clone(),
+                    // level_name: self.levels[self.level_index as usize].name.clone(),
+                    level_name: String::new(),
                     stdout: r.stdout,
                     stderr: r.stderr,
                     duration: r.duration,
