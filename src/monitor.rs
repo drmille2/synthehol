@@ -17,6 +17,7 @@ pub struct Monitor {
     reporters: HashMap<String, Box<dyn Reporter + Send + Sync + 'static>>,
     level_index: u64,
     failure_tally: u64,
+    success_tally: u64,
     target: Target,
 }
 
@@ -41,6 +42,7 @@ impl Monitor {
             reporters: HashMap::new(),
             level_index: 0,
             failure_tally: 0,
+            success_tally: 0,
             target: Target::from_args(args.target),
         }
     }
@@ -69,7 +71,8 @@ impl Monitor {
                     if r.status == 0 {
                         self.incr_failure();
                     } else {
-                        self.reset();
+                        self.incr_success();
+                        // self.clear();
                     }
                     self.report(&r).await;
                     sleep = Duration::from_secs(self.interval) - Duration::from_micros(r.duration);
@@ -108,16 +111,39 @@ impl Monitor {
     /// Increment failure tally and escalate if needed
     fn incr_failure(&mut self) {
         self.failure_tally += 1;
-        let msg = format!(
-            "incrementing failure count (was {0}, now {1})",
+        // let msg = format!(
+        //     "incrementing failure count (was {0}, now {1})",
+        //     self.failure_tally - 1,
+        //     self.failure_tally
+        // );
+        // event!(tLevel::INFO, msg);
+        event!(
+            tLevel::INFO,
+            "incrementing failure count (was {}, now {})",
             self.failure_tally - 1,
             self.failure_tally
         );
-        event!(tLevel::INFO, msg);
         let l = &self.levels[self.level_index as usize];
         if let Some(esc) = l.errors_to_escalate {
             if esc <= self.failure_tally {
                 self.escalate()
+            }
+        }
+    }
+
+    // Increment success tally and clear if needed
+    fn incr_success(&mut self) {
+        self.success_tally += 1;
+        event!(
+            tLevel::INFO,
+            "incrementing success count (was {}, now {})",
+            self.success_tally - 1,
+            self.success_tally
+        );
+        let l = &self.levels[self.level_index as usize];
+        if let Some(clr) = l.successes_to_clear {
+            if clr <= self.success_tally {
+                self.clear()
             }
         }
     }
@@ -136,7 +162,7 @@ impl Monitor {
     }
 
     /// Used to reset level & failure tally after a successful monitor run
-    fn reset(&mut self) {
+    fn clear(&mut self) {
         self.level_index = 0;
         self.failure_tally = 0;
         event!(tLevel::INFO, "reset monitor level & failure count");
@@ -161,6 +187,7 @@ impl Monitor {
 struct Level {
     name: String,
     errors_to_escalate: Option<u64>,
+    successes_to_clear: Option<u64>,
     reporters: Vec<String>,
 }
 
@@ -168,6 +195,7 @@ struct Level {
 pub struct LevelArgs {
     name: String,
     errors_to_escalate: Option<u64>,
+    successes_to_clear: Option<u64>,
     reporters: Vec<String>,
 }
 
@@ -176,6 +204,7 @@ impl Level {
         Self {
             name: args.name,
             errors_to_escalate: args.errors_to_escalate,
+            successes_to_clear: args.successes_to_clear,
             reporters: args.reporters,
         }
     }
@@ -252,6 +281,7 @@ pub type ReporterArgs = toml::Table;
 #[async_trait]
 pub trait Reporter {
     async fn report(&self, _: &MonitorResult);
+    async fn clear(&self, _: &MonitorResult);
 }
 
 #[derive(Debug, Serialize)]
