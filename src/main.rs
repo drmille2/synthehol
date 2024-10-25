@@ -2,6 +2,7 @@ mod monitor;
 mod reporters;
 
 use crate::reporters::slack_reporter::SlackReporter;
+use crate::reporters::splunk_reporter::SplunkReporter;
 
 use std::fs;
 use std::future;
@@ -26,7 +27,7 @@ struct Cli {
 #[derive(Deserialize, Debug)]
 struct Config {
     monitor: Vec<monitor::MonitorArgs>,
-    // splunk: Option<monitor::ReporterArgs>,
+    splunk: Option<monitor::ReporterArgs>,
     slack: Option<monitor::ReporterArgs>,
     // pagerduty: Option<monitor::ReporterArgs>,
 }
@@ -56,7 +57,14 @@ async fn main() {
         if let Some(r) = &config.slack {
             let slack =
                 Box::new(SlackReporter::from_toml(r).expect("failed to initialize Slack reporter"));
-            mon.register_reporter("Slack", slack);
+            mon.register_reporter("slack", slack);
+        }
+
+        if let Some(r) = &config.splunk {
+            let splunk = Box::new(
+                SplunkReporter::from_toml(r).expect("failed to initialize Splunk reporter"),
+            );
+            mon.register_reporter("splunk", splunk);
         }
 
         mons.push(mon);
