@@ -72,9 +72,12 @@ impl Monitor {
                         self.incr_failure();
                     } else {
                         self.incr_success();
-                        // self.clear();
                     }
                     self.report(&r).await;
+                    // this will only be true if we perform a reset()
+                    if self.success_tally == 0 && self.failure_tally == 0 {
+                        self.clear(&r).await;
+                    }
                     sleep = Duration::from_secs(self.interval) - Duration::from_micros(r.duration);
                 }
                 Err(e) => {
@@ -143,7 +146,7 @@ impl Monitor {
         let l = &self.levels[self.level_index as usize];
         if let Some(clr) = l.successes_to_clear {
             if clr <= self.success_tally {
-                self.clear()
+                self.reset()
             }
         }
     }
@@ -162,9 +165,10 @@ impl Monitor {
     }
 
     /// Used to reset level & failure tally after a successful monitor run
-    fn clear(&mut self) {
+    fn reset(&mut self) {
         self.level_index = 0;
         self.failure_tally = 0;
+        self.success_tally = 0;
         event!(tLevel::INFO, "reset monitor level & failure count");
     }
 
@@ -175,6 +179,17 @@ impl Monitor {
             let k_l = k.clone().to_lowercase();
             if let Some(r) = &self.reporters.get(&k_l) {
                 r.report(res).await;
+            }
+        }
+    }
+
+    /// Clear all reporters based on current level
+    async fn clear(&self, res: &MonitorResult) {
+        let l = &self.levels[self.level_index as usize];
+        for k in l.reporters.iter() {
+            let k_l = k.clone().to_lowercase();
+            if let Some(r) = &self.reporters.get(&k_l) {
+                r.clear(res).await;
             }
         }
     }
