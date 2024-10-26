@@ -32,10 +32,10 @@ impl SlackReporter {
         let mut renderer = upon::Engine::new();
         renderer
             .add_template("report", report_tmpl)
-            .map_err(|e| format!("failed to register Slack template ({0})", e))?;
+            .map_err(|e| format!("failed to register slack template ({0})", e))?;
         renderer
             .add_template("clear", clear_tmpl)
-            .map_err(|e| format!("failed to register Slack template ({0})", e))?;
+            .map_err(|e| format!("failed to register slack template ({0})", e))?;
         Ok(Self {
             webhook_url,
             renderer,
@@ -51,7 +51,7 @@ impl SlackReporter {
             .template(template)
             .render(upon::value![res: output])
             .to_string()
-            .map_err(|e| format!("error rendering Slack template {0}", e))?;
+            .map_err(|e| format!("error rendering slack template {0}", e))?;
         Ok(
             SlackMessageContent::new().with_blocks(vec![SlackBlock::from(
                 SlackSectionBlock::new().with_text(md!(body)),
@@ -71,13 +71,13 @@ impl SlackReporter {
                         &SlackApiPostWebhookMessageRequest::new(content),
                     )
                     .await;
-                if let Err(e) = res {
-                    event!(tLevel::WARN, "sending to slack webhook failed ({})", e);
+                match res {
+                    Ok(_) => event!(tLevel::DEBUG, "slack report successful"),
+                    Err(e) => event!(tLevel::ERROR, "slack report failed ({})", e),
                 }
-                event!(tLevel::DEBUG, "processed monitor result via slack reporter");
             }
             Err(e) => {
-                event!(tLevel::WARN, "failed to create slack connector ({})", e);
+                event!(tLevel::ERROR, "failed to create slack connector ({})", e);
             }
         }
     }
@@ -95,30 +95,23 @@ impl Reporter for SlackReporter {
                 event!(tLevel::ERROR, e);
             }
         }
-        // if let Err(e) = slack_content {
-        //     event!(tLevel::ERROR, e);
-        //     return;
-        // }
-        // self.send(slack_content.unwrap()).await;
     }
 
     async fn clear(&self, output: &MonitorResult) {
         let slack_content = self.format("clear", output);
         match slack_content {
             Ok(slack_content) => {
-                event!(tLevel::INFO, "cleared slack alert");
+                event!(
+                    tLevel::INFO,
+                    "slack alert cleared for monitor {}",
+                    output.name
+                );
                 self.send(slack_content).await;
             }
             Err(e) => {
                 event!(tLevel::ERROR, e);
             }
         }
-        // if let Err(e) = slack_content {
-        //     event!(tLevel::ERROR, e);
-        //     return;
-        // }
-        // event!(tLevel::INFO, "cleared slack alert");
-        // self.send(slack_content.unwrap()).await;
     }
 }
 

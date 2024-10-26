@@ -84,11 +84,9 @@ impl Reporter for SplunkReporter {
             .json(&output)
             .send()
             .await;
-        if let Err(e) = res {
-            event!(tLevel::ERROR, "splunk report failed ({})", e);
-        } else {
-            let out = res.unwrap();
-            event!(tLevel::INFO, "splunk report successful ({})", out.status());
+        match res {
+            Ok(r) => event!(tLevel::DEBUG, "splunk report successful ({})", r.status()),
+            Err(e) => event!(tLevel::ERROR, "splunk report failed ({})", e),
         }
     }
 
