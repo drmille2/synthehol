@@ -68,13 +68,13 @@ impl SlackReporter {
                 let res = client
                     .post_webhook_message(
                         &self.webhook_url,
-                        &SlackApiPostWebhookMessageRequest::new(content), // checked this already
+                        &SlackApiPostWebhookMessageRequest::new(content),
                     )
                     .await;
                 if let Err(e) = res {
                     event!(tLevel::WARN, "sending to slack webhook failed ({})", e);
                 }
-                event!(tLevel::INFO, "processed monitor result via slack reporter");
+                event!(tLevel::DEBUG, "processed monitor result via slack reporter");
             }
             Err(e) => {
                 event!(tLevel::WARN, "failed to create slack connector ({})", e);
@@ -83,28 +83,42 @@ impl SlackReporter {
     }
 }
 
-// don't think these are still needed
-// unsafe impl Send for SlackReporter {}
-// unsafe impl Sync for SlackReporter {}
-
 #[async_trait]
 impl Reporter for SlackReporter {
     async fn report(&self, output: &MonitorResult) {
         let slack_content = self.format("report", output);
-        if let Err(e) = slack_content {
-            event!(tLevel::ERROR, e);
-            return;
+        match slack_content {
+            Ok(slack_content) => {
+                self.send(slack_content).await;
+            }
+            Err(e) => {
+                event!(tLevel::ERROR, e);
+            }
         }
-        self.send(slack_content.unwrap()).await;
+        // if let Err(e) = slack_content {
+        //     event!(tLevel::ERROR, e);
+        //     return;
+        // }
+        // self.send(slack_content.unwrap()).await;
     }
 
     async fn clear(&self, output: &MonitorResult) {
         let slack_content = self.format("clear", output);
-        if let Err(e) = slack_content {
-            event!(tLevel::ERROR, e);
-            return;
+        match slack_content {
+            Ok(slack_content) => {
+                event!(tLevel::INFO, "cleared slack alert");
+                self.send(slack_content).await;
+            }
+            Err(e) => {
+                event!(tLevel::ERROR, e);
+            }
         }
-        self.send(slack_content.unwrap()).await;
+        // if let Err(e) = slack_content {
+        //     event!(tLevel::ERROR, e);
+        //     return;
+        // }
+        // event!(tLevel::INFO, "cleared slack alert");
+        // self.send(slack_content.unwrap()).await;
     }
 }
 

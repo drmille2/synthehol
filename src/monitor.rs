@@ -15,7 +15,7 @@ pub struct Monitor {
     pub interval: u64,
     levels: Vec<Level>,
     reporters: HashMap<String, Box<dyn Reporter + Send + Sync + 'static>>,
-    level_index: u64,
+    level_index: usize,
     failure_tally: u64,
     success_tally: u64,
     target: Target,
@@ -68,16 +68,22 @@ impl Monitor {
                 Ok(mut r) => {
                     if r.status != 0 {
                         self.incr_failure();
+                        let l = &self.levels[self.level_index];
+                        if l.errors_to_escalate <= self.failure_tally {
+                            self.escalate()
+                        }
                     } else {
                         self.incr_success();
+                        let l = &self.levels[self.level_index];
+                        if l.successes_to_clear <= self.success_tally {
+                            self.clear(&r).await;
+                            self.reset()
+                        }
                     }
                     // this needs to be set after we increment the trigger result
-                    r.level_name = self.levels[self.level_index as usize].name.clone();
+                    r.level_name = self.levels[self.level_index].name.clone();
                     self.report(&r).await;
                     // this will only be true if we perform a reset()
-                    if self.success_tally == 0 && self.failure_tally == 0 {
-                        self.clear(&r).await;
-                    }
                     sleep = Duration::from_secs(self.interval) - Duration::from_micros(r.duration);
                 }
                 Err(e) => {
@@ -97,7 +103,6 @@ impl Monitor {
                 let args = self.target.args.clone().join(",");
                 Ok(MonitorResult {
                     name: self.name.clone(),
-                    // level_name: self.levels[self.level_index as usize].name.clone(),
                     level_name: String::new(),
                     stdout: r.stdout,
                     stderr: r.stderr,
@@ -114,6 +119,7 @@ impl Monitor {
 
     /// Increment failure tally and escalate if needed
     fn incr_failure(&mut self) {
+        self.success_tally = 0;
         self.failure_tally += 1;
         event!(
             tLevel::INFO,
@@ -121,16 +127,11 @@ impl Monitor {
             self.failure_tally - 1,
             self.failure_tally
         );
-        let l = &self.levels[self.level_index as usize];
-        if let Some(esc) = l.errors_to_escalate {
-            if esc <= self.failure_tally {
-                self.escalate()
-            }
-        }
     }
 
     // Increment success tally and clear if needed
     fn incr_success(&mut self) {
+        self.failure_tally = 0;
         // this will keep us from incrementing this indefinitely
         // in cases where the monitor never fails
         if self.level_index == 0 {
@@ -144,24 +145,18 @@ impl Monitor {
             self.success_tally - 1,
             self.success_tally
         );
-        let l = &self.levels[self.level_index as usize];
-        if let Some(clr) = l.successes_to_clear {
-            if clr <= self.success_tally {
-                self.reset()
-            }
-        }
     }
 
     /// Escalate to the next level if possible
     fn escalate(&mut self) {
-        if self.level_index + 1 < self.levels.len() as u64 {
+        if self.level_index + 1 < self.levels.len() {
             self.level_index += 1;
         }
         event!(
             tLevel::INFO,
             "escalated monitor level (was {}, now {})",
-            self.levels[self.level_index as usize - 1].name,
-            self.levels[self.level_index as usize].name
+            self.levels[self.level_index - 1].name,
+            self.levels[self.level_index].name
         );
     }
 
@@ -179,7 +174,7 @@ impl Monitor {
 
     /// Dispatch all reporters based on current level
     async fn report(&self, res: &MonitorResult) {
-        let l = &self.levels[self.level_index as usize];
+        let l = &self.levels[self.level_index];
         for k in l.reporters.iter() {
             let k_l = k.clone().to_lowercase();
             if let Some(r) = &self.reporters.get(&k_l) {
@@ -190,7 +185,7 @@ impl Monitor {
 
     /// Clear all reporters based on current level
     async fn clear(&self, res: &MonitorResult) {
-        let l = &self.levels[self.level_index as usize];
+        let l = &self.levels[self.level_index];
         for k in l.reporters.iter() {
             let k_l = k.clone().to_lowercase();
             if let Some(r) = &self.reporters.get(&k_l) {
@@ -206,8 +201,8 @@ impl Monitor {
 #[derive(Debug)]
 struct Level {
     name: String,
-    errors_to_escalate: Option<u64>,
-    successes_to_clear: Option<u64>,
+    errors_to_escalate: u64,
+    successes_to_clear: u64,
     reporters: Vec<String>,
 }
 
@@ -223,8 +218,8 @@ impl Level {
     fn from_args(args: LevelArgs) -> Self {
         Self {
             name: args.name,
-            errors_to_escalate: args.errors_to_escalate,
-            successes_to_clear: args.successes_to_clear,
+            errors_to_escalate: args.errors_to_escalate.unwrap_or(1),
+            successes_to_clear: args.successes_to_clear.unwrap_or(1),
             reporters: args.reporters,
         }
     }
