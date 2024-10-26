@@ -2,9 +2,11 @@ use crate::monitor::{MonitorResult, Reporter};
 use async_trait::async_trait;
 use slack_morphism::prelude::*;
 use tracing::event;
+use tracing::instrument;
 use tracing::Level as tLevel;
 use url::Url;
 
+#[derive(Debug)]
 pub struct SlackReporter {
     webhook_url: Url,
     renderer: upon::Engine<'static>,
@@ -41,6 +43,8 @@ impl SlackReporter {
             renderer,
         })
     }
+
+    #[instrument]
     fn format(
         &self,
         template: &str,
@@ -59,6 +63,7 @@ impl SlackReporter {
         )
     }
 
+    #[instrument]
     async fn send(&self, content: SlackMessageContent) {
         let connector = SlackClientHyperConnector::new();
         match connector {
@@ -73,11 +78,11 @@ impl SlackReporter {
                     .await;
                 match res {
                     Ok(_) => event!(tLevel::DEBUG, "slack report successful"),
-                    Err(e) => event!(tLevel::ERROR, "slack report failed ({})", e),
+                    Err(e) => event!(tLevel::WARN, "slack report failed ({})", e),
                 }
             }
             Err(e) => {
-                event!(tLevel::ERROR, "failed to create slack connector ({})", e);
+                event!(tLevel::WARN, "failed to create slack connector ({})", e);
             }
         }
     }
@@ -85,6 +90,7 @@ impl SlackReporter {
 
 #[async_trait]
 impl Reporter for SlackReporter {
+    #[instrument]
     async fn report(&self, output: &MonitorResult) {
         let slack_content = self.format("report", output);
         match slack_content {
@@ -92,24 +98,25 @@ impl Reporter for SlackReporter {
                 self.send(slack_content).await;
             }
             Err(e) => {
-                event!(tLevel::ERROR, e);
+                event!(tLevel::WARN, e);
             }
         }
     }
 
+    #[instrument]
     async fn clear(&self, output: &MonitorResult) {
         let slack_content = self.format("clear", output);
         match slack_content {
             Ok(slack_content) => {
                 event!(
-                    tLevel::INFO,
+                    tLevel::DEBUG,
                     "slack alert cleared for monitor {}",
                     output.name
                 );
                 self.send(slack_content).await;
             }
             Err(e) => {
-                event!(tLevel::ERROR, e);
+                event!(tLevel::WARN, e);
             }
         }
     }

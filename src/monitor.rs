@@ -5,8 +5,8 @@ use std::process::{Command, ExitStatus};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use tracing::event;
 use tracing::Level as tLevel;
+use tracing::{event, instrument};
 
 /// Represents a monitor that executes a target and reports the result
 /// based on the current level
@@ -54,7 +54,7 @@ impl Monitor {
         rep: Box<dyn Reporter + Send + Sync + 'static>,
     ) {
         self.reporters.insert(name.to_string().to_lowercase(), rep);
-        event!(tLevel::INFO, "registered reporter: {}", name);
+        event!(tLevel::DEBUG, "registered reporter: {}", name);
     }
 
     /// Begin monitoring and reporting loop, does not terminate
@@ -87,7 +87,7 @@ impl Monitor {
                     sleep = Duration::from_secs(self.interval) - Duration::from_micros(r.duration);
                 }
                 Err(e) => {
-                    event!(tLevel::WARN, e);
+                    event!(tLevel::ERROR, e);
                 }
             }
 
@@ -122,7 +122,7 @@ impl Monitor {
         self.success_tally = 0;
         self.failure_tally += 1;
         event!(
-            tLevel::INFO,
+            tLevel::DEBUG,
             "incrementing failure count (was {}, now {})",
             self.failure_tally - 1,
             self.failure_tally
@@ -140,7 +140,7 @@ impl Monitor {
         }
         self.success_tally += 1;
         event!(
-            tLevel::INFO,
+            tLevel::DEBUG,
             "incrementing success count (was {}, now {})",
             self.success_tally - 1,
             self.success_tally
@@ -153,7 +153,7 @@ impl Monitor {
             self.level_index += 1;
         }
         event!(
-            tLevel::INFO,
+            tLevel::DEBUG,
             "escalated monitor level (was {}, now {})",
             self.levels[self.level_index - 1].name,
             self.levels[self.level_index].name
@@ -166,7 +166,7 @@ impl Monitor {
         self.failure_tally = 0;
         self.success_tally = 0;
         event!(
-            tLevel::INFO,
+            tLevel::DEBUG,
             "reset level & failure count for monitor: {}",
             self.name
         );
@@ -261,8 +261,10 @@ impl Target {
     }
 
     /// Run the target, returning duration and other execution details
+    #[instrument(level=tLevel::DEBUG)]
     fn run(&self) -> Result<TargetOutput, String> {
         let env = self.env.clone();
+        event!(tLevel::INFO, "running monitor target: {}", self.path);
         let start = Instant::now();
         let mut cmd = Command::new(&self.path);
         let output = cmd
@@ -282,7 +284,12 @@ impl Target {
             duration,
             status,
         };
-        event!(tLevel::INFO, "invoked monitor target: {}", self.path);
+        event!(
+            tLevel::DEBUG,
+            "completed monitor target: {} ({} μs)",
+            self.path,
+            duration
+        );
         // dbg!(&out);
         Ok(out)
     }
