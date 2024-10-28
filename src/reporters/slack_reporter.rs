@@ -1,28 +1,40 @@
 use crate::monitor::{MonitorResult, Reporter};
 use async_trait::async_trait;
-use slack_morphism::prelude::*;
+use serde::Serialize;
 use tracing::event;
 use tracing::instrument;
 use tracing::Level as tLevel;
-use url::Url;
 
 #[derive(Debug)]
 pub struct SlackReporter {
-    webhook_url: Url,
+    webhook_url: String,
     renderer: upon::Engine<'static>,
+}
+
+#[derive(Serialize, Debug)]
+struct SlackMessage {
+    blocks: Vec<SlackSectionBlock>,
+}
+
+#[derive(Serialize, Debug)]
+struct SlackTextBlock {
+    r#type: String,
+    text: String,
+}
+
+#[derive(Serialize, Debug)]
+struct SlackSectionBlock {
+    r#type: String,
+    text: SlackTextBlock,
 }
 
 impl SlackReporter {
     pub fn from_toml(config: &toml::Table) -> Result<Self, String> {
-        let c = config["webhook_url"]
+        let webhook_url = config["webhook_url"]
             .as_str()
             // this maps option to our expected result so we can ?
             .ok_or("missing Slack webhook_url config item")?;
-        let webhook_url: Url =
-            // same thing but wraps the existing error
-            Url::parse(c).map_err(|e| format!("error parsing webhook_url ({0})", e))?;
-        // dbg!(&webhook_url);
-
+        let webhook_url = String::from(webhook_url);
         let mut report_tmpl = DEF_REPORT_TEMPLATE.to_string();
         if config.contains_key("template") {
             report_tmpl = config["template"]
@@ -45,45 +57,38 @@ impl SlackReporter {
     }
 
     #[instrument]
-    fn format(
-        &self,
-        template: &str,
-        output: &MonitorResult,
-    ) -> Result<SlackMessageContent, String> {
+    fn format(&self, template: &str, output: &MonitorResult) -> Result<SlackMessage, String> {
         let body = self
             .renderer
             .template(template)
             .render(upon::value![res: output])
             .to_string()
             .map_err(|e| format!("error rendering slack template {0}", e))?;
-        Ok(
-            SlackMessageContent::new().with_blocks(vec![SlackBlock::from(
-                SlackSectionBlock::new().with_text(md!(body)),
-            )]),
-        )
+        let out = SlackMessage {
+            blocks: vec![SlackSectionBlock {
+                r#type: String::from("section"),
+                text: SlackTextBlock {
+                    r#type: String::from("mrkdwn"),
+                    text: body,
+                },
+            }],
+        };
+        Ok(out)
     }
 
     #[instrument]
-    async fn send(&self, content: SlackMessageContent) {
-        let connector = SlackClientHyperConnector::new();
-        match connector {
-            Ok(c) => {
-                // dbg!(slack_content.unwrap());
-                let client = SlackClient::new(c);
-                let res = client
-                    .post_webhook_message(
-                        &self.webhook_url,
-                        &SlackApiPostWebhookMessageRequest::new(content),
-                    )
-                    .await;
-                match res {
-                    Ok(_) => event!(tLevel::DEBUG, "slack report successful"),
-                    Err(e) => event!(tLevel::WARN, "slack report failed ({})", e),
-                }
-            }
-            Err(e) => {
-                event!(tLevel::WARN, "failed to create slack connector ({})", e);
-            }
+    async fn send(&self, content: &SlackMessage) {
+        let client = reqwest::Client::new();
+        let res = client
+            .post(&self.webhook_url)
+            .header("Content-Type", "application/json")
+            .json(content);
+        dbg!(content);
+        dbg!(&res);
+        let res = res.send().await;
+        match res {
+            Ok(r) => event!(tLevel::DEBUG, "slack report successful ({})", r.status()),
+            Err(e) => event!(tLevel::WARN, "slack report failed ({})", e),
         }
     }
 }
@@ -95,7 +100,7 @@ impl Reporter for SlackReporter {
         let slack_content = self.format("report", output);
         match slack_content {
             Ok(slack_content) => {
-                self.send(slack_content).await;
+                self.send(&slack_content).await;
             }
             Err(e) => {
                 event!(tLevel::WARN, e);
@@ -113,7 +118,7 @@ impl Reporter for SlackReporter {
                     "slack alert cleared for monitor {}",
                     output.name
                 );
-                self.send(slack_content).await;
+                self.send(&slack_content).await;
             }
             Err(e) => {
                 event!(tLevel::WARN, e);
@@ -122,12 +127,12 @@ impl Reporter for SlackReporter {
     }
 }
 
-const DEF_REPORT_TEMPLATE: &str = "### Monitor {{res.name}} output (level = {{res.level_name}}) 
-command: {{ res.target }} 
-args: {{ res.args }} 
-stdout: {{ res.stdout }} 
-stderr: {{ res.stderr }} 
-result: {{ res.status }} 
-duration: {{ res.duration }} μs";
+const DEF_REPORT_TEMPLATE: &str = "*Monitor: {{res.name}} [level: {{res.level_name}}*] 
+*command:* {{ res.target }} 
+*args:* {{ res.args }} 
+*stdout:* {{ res.stdout }} 
+*stderr:* {{ res.stderr }} 
+*result:*{{ res.status }} 
+*duration:* {{ res.duration }} μs";
 
-const DEF_CLEAR_TEMPLATE: &str = "### Monitor {{res.name}} returned to baseline";
+const DEF_CLEAR_TEMPLATE: &str = "*Monitor: {{res.name}} returned to baseline*";

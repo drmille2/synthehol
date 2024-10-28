@@ -44,10 +44,12 @@ async fn main() {
     let cli_args = Cli::parse();
     let config = parse_config(cli_args.config);
 
-    // let filt = LevelFilter::from_str(config.log_level.unwrap_or("info"));
     let lev = tLevel::from_str(&config.log_level.unwrap_or(String::from("info")))
         .expect("invalid log level");
-    tracing_subscriber::fmt().with_max_level(lev).init();
+    tracing_subscriber::fmt()
+        .with_max_level(lev)
+        .with_thread_ids(true)
+        .init();
     // dbg!(&config);
 
     // parse all our monitor configs
