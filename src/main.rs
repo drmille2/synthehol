@@ -10,8 +10,8 @@ use std::str::FromStr;
 
 use clap::Parser;
 use serde::Deserialize;
-use tracing::event;
-use tracing::Level as tLevel;
+use tracing::info;
+use tracing::Level;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -44,7 +44,7 @@ async fn main() {
     let cli_args = Cli::parse();
     let config = parse_config(cli_args.config);
 
-    let lev = tLevel::from_str(&config.log_level.unwrap_or(String::from("info")))
+    let lev = Level::from_str(&config.log_level.unwrap_or(String::from("info")))
         .expect("invalid log level");
     tracing_subscriber::fmt()
         .with_max_level(lev)
@@ -57,7 +57,7 @@ async fn main() {
     // initialized separately for each monitor and copied here
     let mut mons = Vec::new();
     for m in config.monitor {
-        event!(tLevel::DEBUG, "config parsed for monitor: {}", m.name);
+        info!("config parsed for monitor: {}", m.name);
         let mut mon = monitor::Monitor::from_args(m);
 
         // initialize and register slack reporter if configured, panics on failure

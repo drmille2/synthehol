@@ -1,9 +1,7 @@
 use crate::monitor::{MonitorResult, Reporter};
 use async_trait::async_trait;
 use serde::Serialize;
-use tracing::event;
-use tracing::instrument;
-use tracing::Level as tLevel;
+use tracing::{debug, instrument, warn};
 
 #[derive(Debug)]
 pub struct SlackReporter {
@@ -87,8 +85,8 @@ impl SlackReporter {
         dbg!(&res);
         let res = res.send().await;
         match res {
-            Ok(r) => event!(tLevel::DEBUG, "slack report successful ({})", r.status()),
-            Err(e) => event!(tLevel::WARN, "slack report failed ({})", e),
+            Ok(r) => debug!("slack report successful ({})", r.status()),
+            Err(e) => warn!("slack report failed ({})", e),
         }
     }
 }
@@ -103,7 +101,7 @@ impl Reporter for SlackReporter {
                 self.send(&slack_content).await;
             }
             Err(e) => {
-                event!(tLevel::WARN, e);
+                warn!(e);
             }
         }
     }
@@ -113,15 +111,11 @@ impl Reporter for SlackReporter {
         let slack_content = self.format("clear", output);
         match slack_content {
             Ok(slack_content) => {
-                event!(
-                    tLevel::DEBUG,
-                    "slack alert cleared for monitor {}",
-                    output.name
-                );
+                debug!("slack alert cleared for monitor {}", output.name);
                 self.send(&slack_content).await;
             }
             Err(e) => {
-                event!(tLevel::WARN, e);
+                warn!(e);
             }
         }
     }

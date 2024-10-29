@@ -1,9 +1,9 @@
 use crate::monitor::{MonitorResult, Reporter};
 use async_trait::async_trait;
 use serde::Serialize;
-use tracing::event;
+use tracing::debug;
+use tracing::error;
 use tracing::instrument;
-use tracing::Level as tLevel;
 
 #[derive(Debug)]
 pub struct SplunkReporter {
@@ -88,8 +88,8 @@ impl Reporter for SplunkReporter {
             .send()
             .await;
         match res {
-            Ok(r) => event!(tLevel::DEBUG, "splunk report successful ({})", r.status()),
-            Err(e) => event!(tLevel::WARN, "splunk report failed ({})", e),
+            Ok(r) => debug!("splunk report successful ({})", r.status()),
+            Err(e) => error!("splunk report failed ({})", e),
         }
     }
 
