@@ -5,13 +5,17 @@ use crate::reporters::slack_reporter::SlackReporter;
 use crate::reporters::splunk_reporter::SplunkReporter;
 
 use std::fs;
-use std::future;
+// use std::future;
 use std::str::FromStr;
 
 use clap::Parser;
 use serde::Deserialize;
+use tokio::signal;
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing::Level;
+
+use tokio_util::task::TaskTracker;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -77,11 +81,34 @@ async fn main() {
         mons.push(mon);
     }
 
-    // spawn monitor loops and do nothing
-    for mut m in mons {
-        tokio::spawn(async move { m.start().await });
-    }
+    let token = CancellationToken::new();
 
-    let future = future::pending();
-    let () = future.await;
+    // spawn monitor loops and do nothing
+    let tracker = TaskTracker::new();
+    for mut m in mons {
+        let cancel = token.clone();
+        tracker.spawn(async move { m.start(cancel).await });
+        // tracker.spawn(async move {
+        //     tokio::select! {
+        //         _ = cloned_token.cancelled() => {
+        //         }
+        //         _ = m.start() => {
+        //         }
+        //     }
+        // });
+    }
+    match signal::ctrl_c().await {
+        Ok(()) => {
+            info!("Interrupt received, shutting down...");
+            token.cancel()
+        }
+        Err(err) => {
+            eprintln!("Unable to listen for shutdown signal: {}", err);
+        }
+    }
+    tracker.close();
+    tracker.wait().await;
+
+    // let future = future::pending();
+    // let () = future.await;
 }

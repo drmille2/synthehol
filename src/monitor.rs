@@ -5,6 +5,7 @@ use std::process::{Command, ExitStatus};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 use tracing::{debug, error, info, Level as tLevel};
 
@@ -19,6 +20,7 @@ pub struct Monitor {
     failure_tally: u64,
     success_tally: u64,
     target: Target,
+    running: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -44,6 +46,7 @@ impl Monitor {
             failure_tally: 0,
             success_tally: 0,
             target: Target::from_args(args.target),
+            running: false,
         }
     }
 
@@ -58,12 +61,23 @@ impl Monitor {
     }
 
     /// Begin monitoring and reporting loop, does not terminate
-    /// TODO: add a .stop() method
-    pub async fn start(&mut self) {
+    pub async fn start(&mut self, cancel: CancellationToken) {
         info!("[{}] starting", self.name);
+        tokio::select! {
+            _ = cancel.cancelled() => { info!("[{}] stopping...", self.name); self.stop() }
+            _ = self.run() => {}
+        }
+    }
+
+    pub fn stop(&mut self) {
+        self.running = false;
+    }
+
+    async fn run(&mut self) {
         let mut sleep = Duration::new(0, 0);
-        loop {
-            let res = self.run();
+        self.running = true;
+        while self.running {
+            let res = self.execute();
             match res {
                 Ok(mut r) => {
                     if r.status != 0 {
@@ -95,8 +109,8 @@ impl Monitor {
         }
     }
 
-    /// Run a single execution of the monitor target
-    fn run(&self) -> Result<MonitorResult, String> {
+    /// Excute a single execution of the monitor target
+    fn execute(&self) -> Result<MonitorResult, String> {
         info!("[{}] executing target: {}", self.name, self.target.path);
         let res = self.target.run();
         match res {
