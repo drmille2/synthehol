@@ -88,14 +88,6 @@ async fn main() {
     for mut m in mons {
         let cancel = token.clone();
         tracker.spawn(async move { m.start(cancel).await });
-        // tracker.spawn(async move {
-        //     tokio::select! {
-        //         _ = cloned_token.cancelled() => {
-        //         }
-        //         _ = m.start() => {
-        //         }
-        //     }
-        // });
     }
     match signal::ctrl_c().await {
         Ok(()) => {
@@ -108,7 +100,4 @@ async fn main() {
     }
     tracker.close();
     tracker.wait().await;
-
-    // let future = future::pending();
-    // let () = future.await;
 }

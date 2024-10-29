@@ -63,50 +63,54 @@ impl Monitor {
     /// Begin monitoring and reporting loop, does not terminate
     pub async fn start(&mut self, cancel: CancellationToken) {
         info!("[{}] starting", self.name);
-        tokio::select! {
-            _ = cancel.cancelled() => { info!("[{}] stopping...", self.name); self.stop() }
-            _ = self.run() => {}
+        self.running = true;
+        while self.running {
+            tokio::select! {
+                _ = cancel.cancelled() => { self.stop() }
+                _ = self.run() => { }
+            }
         }
     }
 
     pub fn stop(&mut self) {
+        info!("[{}] stopping...", self.name);
         self.running = false;
     }
 
     async fn run(&mut self) {
         let mut sleep = Duration::new(0, 0);
-        self.running = true;
-        while self.running {
-            let res = self.execute();
-            match res {
-                Ok(mut r) => {
-                    if r.status != 0 {
-                        self.incr_failure();
-                        let l = &self.levels[self.level_index];
-                        if l.errors_to_escalate <= self.failure_tally {
-                            self.escalate()
-                        }
-                    } else {
-                        self.incr_success();
-                        let l = &self.levels[self.level_index];
-                        if l.successes_to_clear <= self.success_tally {
-                            self.clear(&r).await;
-                            self.reset()
-                        }
-                    }
-                    // this needs to be set after we increment the trigger result
-                    r.level_name = self.levels[self.level_index].name.clone();
-                    self.report(&r).await;
-                    // this will only be true if we perform a reset()
-                    sleep = Duration::from_secs(self.interval) - Duration::from_micros(r.duration);
-                }
-                Err(e) => {
-                    error!(e);
-                }
-            }
-
-            thread::sleep(sleep);
+        if !self.running {
+            return;
         }
+        let res = self.execute();
+        match res {
+            Ok(mut r) => {
+                if r.status != 0 {
+                    self.incr_failure();
+                    let l = &self.levels[self.level_index];
+                    if l.errors_to_escalate <= self.failure_tally {
+                        self.escalate()
+                    }
+                } else {
+                    self.incr_success();
+                    let l = &self.levels[self.level_index];
+                    if l.successes_to_clear <= self.success_tally {
+                        self.clear(&r).await;
+                        self.reset()
+                    }
+                }
+                // this needs to be set after we increment the trigger result
+                r.level_name = self.levels[self.level_index].name.clone();
+                self.report(&r).await;
+                // this will only be true if we perform a reset()
+                sleep = Duration::from_secs(self.interval) - Duration::from_micros(r.duration);
+            }
+            Err(e) => {
+                error!(e);
+            }
+        }
+
+        thread::sleep(sleep);
     }
 
     /// Excute a single execution of the monitor target
