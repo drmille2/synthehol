@@ -2,9 +2,6 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::{Command, ExitStatus};
-// use std::thread;
-//use std::time::Duration;
-//use std::time::Instant;
 use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
@@ -61,7 +58,7 @@ impl Monitor {
         info!("[{}] registered reporter: {}", self.name, name);
     }
 
-    /// Begin monitoring and reporting loop, does not terminate
+    /// Begin monitoring and reporting loop, shuts down gracefully on cancellation
     pub async fn start(&mut self, cancel: CancellationToken) {
         info!("[{}] starting", self.name);
         self.running = true;
@@ -71,8 +68,11 @@ impl Monitor {
         while self.running {
             tokio::select! {
                 _ = cancel.cancelled() => { self.stop() }
-                _ = &mut sleep => { let d = Instant::now()+Duration::from_secs(self.interval)-Duration::from_micros(duration); sleep.as_mut().reset(d); debug!("[{}] slept {:?}", self.name, d); duration = self.run().await }
-                // () = &mut sleep => { sleep.reset(Instant::now() - Duration::from_micros());self.run().await }
+                _ = &mut sleep => {
+                    let d = Instant::now() + Duration::from_secs(self.interval) - Duration::from_micros(duration);
+                    sleep.as_mut().reset(d);
+                    debug!("[{}] slept {:?}", self.name, d); duration = self.run().await
+                }
             }
         }
     }
@@ -82,8 +82,9 @@ impl Monitor {
         self.running = false;
     }
 
+    // run a single monitor cycle, returning the overall duration
     async fn run(&mut self) -> u64 {
-        // let mut sleep = Duration::new(0, 0);
+        let start = Instant::now();
         let res = self.execute();
         match res {
             Ok(mut r) => {
@@ -104,25 +105,24 @@ impl Monitor {
                 // this needs to be set after we increment the trigger result
                 r.level_name = self.levels[self.level_index].name.clone();
                 self.report(&r).await;
-                // sleep = Duration::from_secs(self.interval) - Duration::from_micros(r.duration);
-                r.duration
+                let stop = Instant::now();
+                (stop - start).as_micros() as u64
             }
             Err(e) => {
                 error!(e);
                 0
             }
         }
-        //thread::sleep(sleep);
     }
 
-    /// Excute a single execution of the monitor target
+    /// a single execution of the monitor target
     fn execute(&self) -> Result<MonitorResult, String> {
         info!("[{}] executing target: {}", self.name, self.target.path);
         let res = self.target.run();
         match res {
             Ok(r) => {
                 let args = self.target.args.clone().join(",");
-                debug!(
+                info!(
                     "[{}] execution completed for target: {} ({} μs)",
                     self.name, self.target.path, r.duration
                 );
@@ -147,7 +147,7 @@ impl Monitor {
         self.success_tally = 0;
         self.failure_tally += 1;
         debug!(
-            "[{}] incrementing failure count (was {}, now {})",
+            "[{}] incrementing failure count ({} -> {})",
             self.name,
             self.failure_tally - 1,
             self.failure_tally
@@ -165,7 +165,7 @@ impl Monitor {
         }
         self.success_tally += 1;
         debug!(
-            "[{}] incrementing success count (was {}, now {})",
+            "[{}] incrementing success count ({} -> {})",
             self.name,
             self.success_tally - 1,
             self.success_tally
@@ -178,7 +178,7 @@ impl Monitor {
             self.level_index += 1;
         }
         debug!(
-            "[{}] escalated monitor level (was {}, now {})",
+            "[{}] escalated monitor level ({} -> {})",
             self.name,
             self.levels[self.level_index - 1].name,
             self.levels[self.level_index].name
@@ -190,7 +190,7 @@ impl Monitor {
         self.level_index = 0;
         self.failure_tally = 0;
         self.success_tally = 0;
-        debug!("[{}] reset level & failure count", self.name);
+        debug!("[{}] reset", self.name);
     }
 
     /// Dispatch all reporters based on current level
