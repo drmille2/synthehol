@@ -81,9 +81,10 @@ async fn main() {
         mons.push(mon);
     }
 
+    // spawn monitors with cancellation token for to trigger
+    // a graceful(ish) shutdown after an interrupt, and use
+    // a tracker to wait for the tasks to finish before exiting
     let token = CancellationToken::new();
-
-    // spawn monitor loops and do nothing
     let tracker = TaskTracker::new();
     for mut m in mons {
         let cancel = token.clone();

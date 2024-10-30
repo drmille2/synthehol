@@ -2,9 +2,10 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::{Command, ExitStatus};
-use std::thread;
-use std::time::Duration;
-use std::time::Instant;
+// use std::thread;
+//use std::time::Duration;
+//use std::time::Instant;
+use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 use tracing::{debug, error, info, Level as tLevel};
@@ -64,10 +65,14 @@ impl Monitor {
     pub async fn start(&mut self, cancel: CancellationToken) {
         info!("[{}] starting", self.name);
         self.running = true;
+        let sleep = tokio::time::sleep(Duration::from_secs(self.interval));
+        tokio::pin!(sleep);
+        let mut duration = self.run().await;
         while self.running {
             tokio::select! {
                 _ = cancel.cancelled() => { self.stop() }
-                _ = self.run() => { }
+                _ = &mut sleep => { let d = Instant::now()+Duration::from_secs(self.interval)-Duration::from_micros(duration); sleep.as_mut().reset(d); debug!("[{}] slept {:?}", self.name, d); duration = self.run().await }
+                // () = &mut sleep => { sleep.reset(Instant::now() - Duration::from_micros());self.run().await }
             }
         }
     }
@@ -77,11 +82,8 @@ impl Monitor {
         self.running = false;
     }
 
-    async fn run(&mut self) {
-        let mut sleep = Duration::new(0, 0);
-        if !self.running {
-            return;
-        }
+    async fn run(&mut self) -> u64 {
+        // let mut sleep = Duration::new(0, 0);
         let res = self.execute();
         match res {
             Ok(mut r) => {
@@ -102,15 +104,15 @@ impl Monitor {
                 // this needs to be set after we increment the trigger result
                 r.level_name = self.levels[self.level_index].name.clone();
                 self.report(&r).await;
-                // this will only be true if we perform a reset()
-                sleep = Duration::from_secs(self.interval) - Duration::from_micros(r.duration);
+                // sleep = Duration::from_secs(self.interval) - Duration::from_micros(r.duration);
+                r.duration
             }
             Err(e) => {
                 error!(e);
+                0
             }
         }
-
-        thread::sleep(sleep);
+        //thread::sleep(sleep);
     }
 
     /// Excute a single execution of the monitor target
@@ -145,7 +147,8 @@ impl Monitor {
         self.success_tally = 0;
         self.failure_tally += 1;
         debug!(
-            "incrementing failure count (was {}, now {})",
+            "[{}] incrementing failure count (was {}, now {})",
+            self.name,
             self.failure_tally - 1,
             self.failure_tally
         );
@@ -162,7 +165,8 @@ impl Monitor {
         }
         self.success_tally += 1;
         debug!(
-            "incrementing success count (was {}, now {})",
+            "[{}] incrementing success count (was {}, now {})",
+            self.name,
             self.success_tally - 1,
             self.success_tally
         );
@@ -174,7 +178,8 @@ impl Monitor {
             self.level_index += 1;
         }
         debug!(
-            "escalated monitor level (was {}, now {})",
+            "[{}] escalated monitor level (was {}, now {})",
+            self.name,
             self.levels[self.level_index - 1].name,
             self.levels[self.level_index].name
         );
@@ -185,7 +190,7 @@ impl Monitor {
         self.level_index = 0;
         self.failure_tally = 0;
         self.success_tally = 0;
-        debug!("reset level & failure count for monitor: {}", self.name);
+        debug!("[{}] reset level & failure count", self.name);
     }
 
     /// Dispatch all reporters based on current level
@@ -286,7 +291,7 @@ impl Target {
             .args(&self.args)
             .envs(env)
             .output()
-            .map_err(|e| format!("failed to run target ({0})", e))?; // TODO: handle it
+            .map_err(|e| format!("failed to run target ({0})", e))?;
         let stop = Instant::now();
         let duration = (stop - start).as_micros() as u64;
         let status = output.status;
