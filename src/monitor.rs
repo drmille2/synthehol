@@ -5,7 +5,7 @@ use std::process::{Command, ExitStatus};
 use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
-use tracing::{debug, error, info, Level as tLevel};
+use tracing::{debug, error, info};
 
 /// Represents a monitor that executes a target and reports the result
 /// based on the current level
@@ -282,7 +282,7 @@ impl Target {
     }
 
     /// Run the target, returning duration and other execution details
-    #[instrument(level=tLevel::DEBUG)]
+    #[instrument(level=tracing::Level::DEBUG)]
     fn run(&self) -> Result<TargetOutput, String> {
         let env = self.env.clone();
         let start = Instant::now();
