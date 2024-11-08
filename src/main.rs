@@ -63,7 +63,7 @@ async fn open_db(path: &str) -> Result<Connection, tokio_rusqlite::Error> {
     debug!("attempting to create results table...");
     db.call(|db| {
         db.execute(
-            "CREATE TABLE results (
+            "CREATE TABLE IF NOT EXISTS results (
                 id    INTEGER PRIMARY KEY,
                 monitor_name  TEXT NOT NULL,
                 level_name TEXT NOT NULL,
@@ -80,18 +80,16 @@ async fn open_db(path: &str) -> Result<Connection, tokio_rusqlite::Error> {
         .map_err(|e| e.into())
     })
     .await
-    .unwrap_or_else(|_| {
-        debug!("results table already exists");
-        0
-    });
+    .expect("error creating results table");
 
     // create monitor_state table if it doesn't exist
     debug!("attempting to create monitor_state table...");
     db.call(|db| {
         db.execute(
-            "CREATE TABLE monitor_state (
-                id INTEGER PRIMARY KEY
-                name  TEXT,
+            "CREATE TABLE IF NOT EXISTS monitor_state (
+                id INTEGER PRIMARY KEY,
+                name  TEXT UNIQUE,
+                level_index INTEGER NOT NULL,
                 failure_tally INTEGER NOT NULL,
                 success_tally INTEGER NOT NULL
             )",
@@ -100,16 +98,13 @@ async fn open_db(path: &str) -> Result<Connection, tokio_rusqlite::Error> {
         .map_err(|e| e.into())
     })
     .await
-    .unwrap_or_else(|_| {
-        debug!("monitor_state table already exists");
-        0
-    });
+    .expect("error creating monitor_state table");
 
     // create reporter_state table if it doesn't exist
     debug!("attempting to create reporter_state table...");
     db.call(|db| {
         db.execute(
-            "CREATE TABLE reporter_state (
+            "CREATE TABLE IF NOT EXISTS reporter_state (
                 id INTEGER PRIMARY KEY,
                 name TEXT,
                 monitor_name TEXT,
@@ -120,10 +115,7 @@ async fn open_db(path: &str) -> Result<Connection, tokio_rusqlite::Error> {
         .map_err(|e| e.into())
     })
     .await
-    .unwrap_or_else(|_| {
-        debug!("reporter_state table already exists");
-        0
-    });
+    .expect("error creating reporter_state table");
 
     Ok(db)
 }

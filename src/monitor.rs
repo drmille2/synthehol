@@ -119,7 +119,7 @@ impl<'a> Monitor<'a> {
                     let l = &self.levels[self.level_index];
                     if l.successes_to_clear <= self.success_tally {
                         self.clear(&r).await;
-                        self.reset()
+                        self.clear_failures()
                     }
                 }
                 // this needs to be set after we increment the trigger result
@@ -224,11 +224,10 @@ impl<'a> Monitor<'a> {
     }
 
     /// Used to reset level & failure tally after a successful monitor run
-    fn reset(&mut self) {
+    fn clear_failures(&mut self) {
         self.level_index = 0;
         self.failure_tally = 0;
-        self.success_tally = 0;
-        debug!("[{}] reset", self.name);
+        debug!("[{}] cleared failures", self.name);
     }
 
     async fn record_result(&self, res: MonitorResult) -> Result<(), tokio_rusqlite::Error> {
@@ -292,6 +291,7 @@ impl<'a> Monitor<'a> {
 
     async fn save(&self) -> Result<(), String> {
         let name = self.name.clone();
+        let level_index = self.level_index;
         let failure_tally = self.failure_tally;
         let success_tally = self.success_tally;
         debug!("[{}] saving monitor state...", self.name);
@@ -301,21 +301,24 @@ impl<'a> Monitor<'a> {
                     "INSERT INTO
                         monitor_state (
                             name,
+                            level_index,
                             failure_tally,
                             success_tally
                         )
                         VALUES (
                             ?1,
                             ?2,
-                            ?3
+                            ?3,
+                            ?4
                         )
                     ON CONFLICT (name) DO
                     UPDATE
                     SET
+                        level_index = EXCLUDED.level_index,
                         failure_tally = EXCLUDED.failure_tally,
                         success_tally = EXCLUDED.success_tally
                     ",
-                    params![name, failure_tally, success_tally],
+                    params![name, level_index, failure_tally, success_tally],
                 )
                 .map_err(|e| e.into())
             })
@@ -327,8 +330,9 @@ impl<'a> Monitor<'a> {
     }
 
     async fn load(&mut self) -> Result<(), String> {
-        type MonitorState = (String, u64, u64);
+        type MonitorState = (String, usize, u64, u64);
         let mut state = Vec::new();
+        let name = self.name.clone();
         debug!("[{}] load monitor state...", self.name);
         if let Some(db) = self.db.as_ref() {
             state = db
@@ -336,12 +340,15 @@ impl<'a> Monitor<'a> {
                     let mut stmt = db.prepare(
                         "SELECT
                         name,
+                        level_index,
                         failure_tally,
                         success_tally
-                    FROM monitor_state",
+                    FROM monitor_state WHERE name == ?1",
                     )?;
                     let state = stmt
-                        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                        .query_map([name], |row| {
+                            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                        })?
                         .collect::<std::result::Result<Vec<MonitorState>, rusqlite::Error>>()?;
                     Ok(state)
                 })
@@ -349,8 +356,9 @@ impl<'a> Monitor<'a> {
                 .map_err(|e| format!("failed to read monitor state ({})", e))?;
         }
         if let Some(s) = state.last() {
-            self.failure_tally = s.1;
-            self.success_tally = s.2;
+            self.level_index = s.1;
+            self.failure_tally = s.2;
+            self.success_tally = s.3;
         }
         debug!("[{}] monitor state load completed", self.name);
         Ok(())
