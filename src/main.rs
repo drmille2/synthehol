@@ -5,13 +5,14 @@ use crate::reporters::slack_reporter::SlackReporter;
 use crate::reporters::splunk_reporter::SplunkReporter;
 
 use std::fs;
-// use std::future;
 use std::str::FromStr;
 
 use clap::Parser;
 use serde::Deserialize;
 use tokio::signal;
+use tokio_rusqlite::Connection;
 use tokio_util::sync::CancellationToken;
+use tracing::debug;
 use tracing::info;
 use tracing::Level;
 
@@ -43,6 +44,78 @@ fn parse_config(path: String) -> Config {
     toml::from_str(input).expect("failed to parse configuration file")
 }
 
+async fn open_db(path: &str) -> Result<Connection, tokio_rusqlite::Error> {
+    let db = Connection::open(path).await?;
+
+    // TODO: there's a better way to handle the table creation errors
+    // create results table if it doesn't exist
+    debug!("attempting to create results table...");
+    db.call(|db| {
+        db.execute(
+            "CREATE TABLE results (
+                id    INTEGER PRIMARY KEY,
+                monitor_name  TEXT NOT NULL,
+                level_name TEXT NOT NULL,
+                start_time INTEGER NOT NULL,
+                target_name   TEXT NOT NULL,
+                args TEXT,
+                stdout TEXT,
+                stderr TEXT,
+                duration INTEGER,
+                status INTEGER
+            )",
+            [],
+        )
+        .map_err(|e| e.into())
+    })
+    .await
+    .unwrap_or_else(|_| {
+        debug!("results table already exists");
+        0
+    });
+
+    // create monitor_state table if it doesn't exist
+    debug!("attempting to create monitor_state table...");
+    db.call(|db| {
+        db.execute(
+            "CREATE TABLE monitor_state (
+                name  TEXT PRIMARY KEY,
+                failure_tally INTEGER NOT NULL,
+                success_tally INTEGER NOT NULL
+            )",
+            [],
+        )
+        .map_err(|e| e.into())
+    })
+    .await
+    .unwrap_or_else(|_| {
+        debug!("monitor_state table already exists");
+        0
+    });
+
+    // create reporter_state table if it doesn't exist
+    debug!("attempting to create reporter_state table...");
+    db.call(|db| {
+        db.execute(
+            "CREATE TABLE reporter_state (
+                id INTEGER PRIMARY KEY,
+                name TEXT,
+                monitor_name TEXT,
+                state BLOB
+            )",
+            [],
+        )
+        .map_err(|e| e.into())
+    })
+    .await
+    .unwrap_or_else(|_| {
+        debug!("reporter_state table already exists");
+        0
+    });
+
+    Ok(db)
+}
+
 #[tokio::main]
 async fn main() {
     let cli_args = Cli::parse();
@@ -63,6 +136,12 @@ async fn main() {
     for m in config.monitor {
         info!("config parsed for monitor: {}", m.name);
         let mut mon = monitor::Monitor::from_args(m);
+
+        // let
+        let db = open_db("./synthehol.db")
+            .await
+            .expect("failed to open sqlite database");
+        mon.register_db(db);
 
         // initialize and register slack reporter if configured, panics on failure
         if let Some(r) = &config.slack {

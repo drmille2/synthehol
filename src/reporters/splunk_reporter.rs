@@ -97,4 +97,12 @@ impl Reporter for SplunkReporter {
         // nothing to do here for splunk
         return;
     }
+
+    fn state(&self) -> Option<Vec<u8>> {
+        None
+    }
+
+    fn restore(&mut self, _: Option<Vec<u8>>) -> Result<(), String> {
+        Ok(())
+    }
 }

@@ -119,6 +119,14 @@ impl Reporter for SlackReporter {
             }
         }
     }
+
+    fn state(&self) -> Option<Vec<u8>> {
+        None
+    }
+
+    fn restore(&mut self, _: Option<Vec<u8>>) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 const DEF_REPORT_TEMPLATE: &str = "*Monitor: {{res.name}} [level: {{res.level_name}}*] 

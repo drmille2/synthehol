@@ -1,7 +1,9 @@
 use async_trait::async_trait;
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::{Command, ExitStatus};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
@@ -19,6 +21,7 @@ pub struct Monitor {
     success_tally: u64,
     target: Target,
     running: bool,
+    db: Option<tokio_rusqlite::Connection>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -45,6 +48,7 @@ impl Monitor {
             success_tally: 0,
             target: Target::from_args(args.target),
             running: false,
+            db: None,
         }
     }
 
@@ -58,6 +62,12 @@ impl Monitor {
         info!("[{}] registered reporter: {}", self.name, name);
     }
 
+    pub fn register_db(&mut self, db: tokio_rusqlite::Connection) {
+        self.db = Some(db);
+        // let path = self.db.as_ref().unwrap().path().unwrap_or("<no db path>");
+        info!("[{}] registered database", self.name);
+    }
+
     /// Begin monitoring and reporting loop, shuts down gracefully on cancellation
     pub async fn start(&mut self, cancel: CancellationToken) {
         info!("[{}] starting", self.name);
@@ -69,9 +79,10 @@ impl Monitor {
             tokio::select! {
                 _ = cancel.cancelled() => { self.stop() }
                 _ = &mut sleep => {
+                    debug!("[{}] slept {:?}", self.name, duration);
                     let d = Instant::now() + Duration::from_secs(self.interval) - Duration::from_micros(duration);
                     sleep.as_mut().reset(d);
-                    debug!("[{}] slept {:?}", self.name, d); duration = self.run().await
+                    duration = self.run().await
                 }
             }
         }
@@ -85,8 +96,11 @@ impl Monitor {
     // run a single monitor cycle, returning the overall duration
     async fn run(&mut self) -> u64 {
         let start = Instant::now();
-        let res = self.execute();
-        match res {
+        let result = self.execute();
+        // if let Ok(res) = result {
+        //     self.record_result(res).await;
+        // }
+        match result {
             Ok(mut r) => {
                 if r.status != 0 {
                     self.incr_failure();
@@ -105,6 +119,17 @@ impl Monitor {
                 // this needs to be set after we increment the trigger result
                 r.level_name = self.levels[self.level_index].name.clone();
                 self.report(&r).await;
+                match self.record_result(r).await {
+                    Ok(_) => {
+                        debug!("[{}] recorded result in local db", self.name)
+                    }
+                    Err(e) => {
+                        debug!(
+                            "[{}] error while attempting to record result in local db ({})",
+                            self.name, e
+                        )
+                    }
+                };
                 let stop = Instant::now();
                 (stop - start).as_micros() as u64
             }
@@ -126,9 +151,16 @@ impl Monitor {
                     "[{}] execution completed for target: {} ({} μs)",
                     self.name, self.target.path, r.duration
                 );
+
+                // let now = UNIX_EPOCH - Instant::now();
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("System time error")
+                    .as_millis() as u64;
                 Ok(MonitorResult {
                     name: self.name.clone(),
                     level_name: String::new(),
+                    start_time: now, //Instant::now() as i64,
                     stdout: r.stdout,
                     stderr: r.stderr,
                     duration: r.duration,
@@ -191,6 +223,121 @@ impl Monitor {
         self.failure_tally = 0;
         self.success_tally = 0;
         debug!("[{}] reset", self.name);
+    }
+
+    async fn record_result(&self, res: MonitorResult) -> Result<(), tokio_rusqlite::Error> {
+        // let r = res.clone();
+        let MonitorResult {
+            name: monitor_name,
+            level_name,
+            start_time,
+            target: target_name,
+            args,
+            stdout,
+            stderr,
+            duration,
+            status,
+        } = res;
+        if let Some(db) = self.db.as_ref() {
+            db.call(move |db| {
+                db.execute(
+                    "INSERT INTO
+                        results (
+                            monitor_name, 
+                            level_name,
+                            start_time,
+                            target_name,
+                            args,
+                            stdout,
+                            stderr,
+                            duration,
+                            status
+                        )
+                    VALUES (
+                            ?1,
+                            ?2,
+                            ?3,
+                            ?4,
+                            ?5,
+                            ?6,
+                            ?7,
+                            ?8,
+                            ?9
+                        )
+                    ",
+                    params![
+                        monitor_name,
+                        level_name,
+                        start_time,
+                        target_name,
+                        args,
+                        stdout,
+                        stderr,
+                        duration,
+                        status
+                    ],
+                )
+                .map_err(|e| e.into())
+            })
+            .await?;
+        }
+        Ok(())
+    }
+
+    async fn save(self) -> Result<(), String> {
+        if let Some(db) = self.db.as_ref() {
+            db.call(move |db| {
+                db.execute(
+                    "INSERT INTO
+                        monitor_state (
+                            name,
+                            failure_tally,
+                            success_tally
+                        )
+                    VALUES (
+                            ?1,
+                            ?2,
+                            ?3,
+                        )
+                    ON CONFLICT (email) DO
+                    UPDATE
+                    SET
+                        name = excluded.name,
+                        failure_tally = excluded.failure_tally,
+                        success_tally = excluded.success_tally
+                    ",
+                    params![self.name, self.failure_tally, self.success_tally],
+                )
+                .map_err(|e| e.into())
+            })
+            .await
+            .map_err(|e| format!("failed to save monitor state ({})", e))?;
+        }
+        Ok(())
+    }
+
+    async fn load(self) -> Result<(), String> {
+        if let Some(db) = self.db.as_ref() {
+            // db.call(move |db| {
+            //     let mut stmt = db.prepare(
+            //         "SELECT
+            //             name,
+            //             failure_tally,
+            //             success_tally
+            //         FROM monitor_state",
+            //     )?;
+            //     let person_iter = stmt.query_map([], |row| {
+            //         Ok(Person {
+            //             id: row.get(0)?,
+            //             name: row.get(1)?,
+            //             data: row.get(2)?,
+            //         })
+            //     })?;
+            // })
+            // .await
+            // .map_err(|e| format!("failed to load monitor state ({})", e))?;
+        }
+        Ok(())
     }
 
     /// Dispatch all reporters based on current level
@@ -317,12 +464,15 @@ pub type ReporterArgs = toml::Table;
 pub trait Reporter {
     async fn report(&self, _: &MonitorResult);
     async fn clear(&self, _: &MonitorResult);
+    fn state(&self) -> Option<Vec<u8>>;
+    fn restore(&mut self, _: Option<Vec<u8>>) -> Result<(), String>;
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct MonitorResult {
     pub name: String,
     pub level_name: String,
+    pub start_time: u64,
     pub target: String,
     pub args: String,
     pub stdout: String,
