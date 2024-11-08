@@ -11,7 +11,7 @@ use tracing::{debug, error, info};
 
 /// Represents a monitor that executes a target and reports the result
 /// based on the current level
-pub struct Monitor {
+pub struct Monitor<'a> {
     pub name: String,
     pub interval: u64,
     levels: Vec<Level>,
@@ -21,7 +21,7 @@ pub struct Monitor {
     success_tally: u64,
     target: Target,
     running: bool,
-    db: Option<tokio_rusqlite::Connection>,
+    db: Option<&'a tokio_rusqlite::Connection>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -32,7 +32,7 @@ pub struct MonitorArgs {
     pub target: TargetArgs,
 }
 
-impl Monitor {
+impl<'a> Monitor<'a> {
     pub fn from_args(args: MonitorArgs) -> Self {
         let mut levels = Vec::new();
         for l in args.level.into_iter() {
@@ -62,7 +62,7 @@ impl Monitor {
         info!("[{}] registered reporter: {}", self.name, name);
     }
 
-    pub fn register_db(&mut self, db: tokio_rusqlite::Connection) {
+    pub fn register_db(&mut self, db: &'static tokio_rusqlite::Connection) {
         self.db = Some(db);
         // let path = self.db.as_ref().unwrap().path().unwrap_or("<no db path>");
         info!("[{}] registered database", self.name);
@@ -72,12 +72,15 @@ impl Monitor {
     pub async fn start(&mut self, cancel: CancellationToken) {
         info!("[{}] starting", self.name);
         self.running = true;
+        if let Err(e) = self.load().await {
+            info!("[{}] failed to load monitor state ({})", self.name, e);
+        }
         let sleep = tokio::time::sleep(Duration::from_secs(self.interval));
         tokio::pin!(sleep);
         let mut duration = self.run().await;
         while self.running {
             tokio::select! {
-                _ = cancel.cancelled() => { self.stop() }
+                _ = cancel.cancelled() => { self.stop().await }
                 _ = &mut sleep => {
                     debug!("[{}] slept {:?}", self.name, duration);
                     let d = Instant::now() + Duration::from_secs(self.interval) - Duration::from_micros(duration);
@@ -88,9 +91,12 @@ impl Monitor {
         }
     }
 
-    pub fn stop(&mut self) {
+    pub async fn stop(&mut self) {
         info!("[{}] stopping...", self.name);
         self.running = false;
+        if let Err(e) = self.save().await {
+            error!("[{}] failed to save monitor state ({})", self.name, e);
+        }
     }
 
     // run a single monitor cycle, returning the overall duration
@@ -284,7 +290,11 @@ impl Monitor {
         Ok(())
     }
 
-    async fn save(self) -> Result<(), String> {
+    async fn save(&self) -> Result<(), String> {
+        let name = self.name.clone();
+        let failure_tally = self.failure_tally;
+        let success_tally = self.success_tally;
+        debug!("[{}] saving monitor state...", self.name);
         if let Some(db) = self.db.as_ref() {
             db.call(move |db| {
                 db.execute(
@@ -294,49 +304,55 @@ impl Monitor {
                             failure_tally,
                             success_tally
                         )
-                    VALUES (
+                        VALUES (
                             ?1,
                             ?2,
-                            ?3,
+                            ?3
                         )
-                    ON CONFLICT (email) DO
+                    ON CONFLICT (name) DO
                     UPDATE
                     SET
-                        name = excluded.name,
-                        failure_tally = excluded.failure_tally,
-                        success_tally = excluded.success_tally
+                        failure_tally = EXCLUDED.failure_tally,
+                        success_tally = EXCLUDED.success_tally
                     ",
-                    params![self.name, self.failure_tally, self.success_tally],
+                    params![name, failure_tally, success_tally],
                 )
                 .map_err(|e| e.into())
             })
             .await
-            .map_err(|e| format!("failed to save monitor state ({})", e))?;
+            .map_err(|e| e.to_string())?;
         }
+        debug!("[{}] monitor state save completed", self.name);
         Ok(())
     }
 
-    async fn load(self) -> Result<(), String> {
+    async fn load(&mut self) -> Result<(), String> {
+        type MonitorState = (String, u64, u64);
+        let mut state = Vec::new();
+        debug!("[{}] load monitor state...", self.name);
         if let Some(db) = self.db.as_ref() {
-            // db.call(move |db| {
-            //     let mut stmt = db.prepare(
-            //         "SELECT
-            //             name,
-            //             failure_tally,
-            //             success_tally
-            //         FROM monitor_state",
-            //     )?;
-            //     let person_iter = stmt.query_map([], |row| {
-            //         Ok(Person {
-            //             id: row.get(0)?,
-            //             name: row.get(1)?,
-            //             data: row.get(2)?,
-            //         })
-            //     })?;
-            // })
-            // .await
-            // .map_err(|e| format!("failed to load monitor state ({})", e))?;
+            state = db
+                .call(move |db| {
+                    let mut stmt = db.prepare(
+                        "SELECT
+                        name,
+                        failure_tally,
+                        success_tally
+                    FROM monitor_state",
+                    )?;
+                    let state = stmt
+                        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                        .collect::<std::result::Result<Vec<MonitorState>, rusqlite::Error>>()?;
+                    Ok(state)
+                })
+                .await
+                .map_err(|e| format!("failed to read monitor state ({})", e))?;
         }
+        if let Some(s) = state.last() {
+            self.failure_tally = s.1;
+            self.success_tally = s.2;
+        }
+        debug!("[{}] monitor state load completed", self.name);
         Ok(())
     }
 

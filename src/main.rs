@@ -13,6 +13,7 @@ use tokio::signal;
 use tokio_rusqlite::Connection;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
+use tracing::error;
 use tracing::info;
 use tracing::Level;
 
@@ -49,6 +50,16 @@ async fn open_db(path: &str) -> Result<Connection, tokio_rusqlite::Error> {
 
     // TODO: there's a better way to handle the table creation errors
     // create results table if it doesn't exist
+    debug!("setting sqlite pragmas...");
+    db.call(|db| {
+        db.execute("PRAGMA cache_size = -4096", [])
+            .map_err(|e| e.into())
+    })
+    .await
+    .unwrap_or_else(|e| {
+        error!("failed to set pragmas ({})", e);
+        0
+    });
     debug!("attempting to create results table...");
     db.call(|db| {
         db.execute(
@@ -79,7 +90,8 @@ async fn open_db(path: &str) -> Result<Connection, tokio_rusqlite::Error> {
     db.call(|db| {
         db.execute(
             "CREATE TABLE monitor_state (
-                name  TEXT PRIMARY KEY,
+                id INTEGER PRIMARY KEY
+                name  TEXT,
                 failure_tally INTEGER NOT NULL,
                 success_tally INTEGER NOT NULL
             )",
@@ -128,6 +140,11 @@ async fn main() {
         .with_thread_ids(true)
         .init();
     // dbg!(&config);
+    let db = Box::leak(Box::new(
+        open_db("./synthehol.db")
+            .await
+            .expect("failed to open sqlite database"),
+    ));
 
     // parse all our monitor configs
     // there's some duplicated work with the reporters being
@@ -137,10 +154,6 @@ async fn main() {
         info!("config parsed for monitor: {}", m.name);
         let mut mon = monitor::Monitor::from_args(m);
 
-        // let
-        let db = open_db("./synthehol.db")
-            .await
-            .expect("failed to open sqlite database");
         mon.register_db(db);
 
         // initialize and register slack reporter if configured, panics on failure
