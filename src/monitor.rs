@@ -103,9 +103,6 @@ impl<'a> Monitor<'a> {
     async fn run(&mut self) -> u64 {
         let start = Instant::now();
         let result = self.execute();
-        // if let Ok(res) = result {
-        //     self.record_result(res).await;
-        // }
         match result {
             Ok(mut r) => {
                 if r.status != 0 {
@@ -159,7 +156,6 @@ impl<'a> Monitor<'a> {
                     self.name, self.target.path, r.duration
                 );
 
-                // let now = UNIX_EPOCH - Instant::now();
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .expect("System time error")
@@ -167,7 +163,7 @@ impl<'a> Monitor<'a> {
                 Ok(MonitorResult {
                     name: self.name.clone(),
                     level_name: String::new(),
-                    start_time: now, //Instant::now() as i64,
+                    start_time: now,
                     stdout: r.stdout,
                     stderr: r.stderr,
                     duration: r.duration,
@@ -232,7 +228,6 @@ impl<'a> Monitor<'a> {
     }
 
     async fn record_result(&self, res: MonitorResult) -> Result<(), tokio_rusqlite::Error> {
-        // let r = res.clone();
         let MonitorResult {
             name: monitor_name,
             level_name,
