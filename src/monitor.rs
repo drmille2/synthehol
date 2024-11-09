@@ -118,8 +118,9 @@ impl<'a> Monitor<'a> {
                     self.incr_success();
                     let l = &self.levels[self.level_index];
                     if l.successes_to_clear <= self.success_tally {
+                        // is this always the right order?
                         self.clear(&r).await;
-                        self.clear_failures()
+                        self.reset_level()
                     }
                 }
                 // this needs to be set after we increment the trigger result
@@ -214,20 +215,20 @@ impl<'a> Monitor<'a> {
     fn escalate(&mut self) {
         if self.level_index + 1 < self.levels.len() {
             self.level_index += 1;
+            debug!(
+                "[{}] escalated monitor level (now {})",
+                self.name, self.levels[self.level_index].name
+            );
         }
-        debug!(
-            "[{}] escalated monitor level ({} -> {})",
-            self.name,
-            self.levels[self.level_index - 1].name,
-            self.levels[self.level_index].name
-        );
     }
 
-    /// Used to reset level & failure tally after a successful monitor run
-    fn clear_failures(&mut self) {
+    /// Used to reset level after enough successful monitor runs
+    fn reset_level(&mut self) {
         self.level_index = 0;
-        self.failure_tally = 0;
-        debug!("[{}] cleared failures", self.name);
+        debug!(
+            "[{}] reset level (now {})",
+            self.name, self.levels[self.level_index].name
+        );
     }
 
     async fn record_result(&self, res: MonitorResult) -> Result<(), tokio_rusqlite::Error> {
