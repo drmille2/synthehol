@@ -34,6 +34,7 @@ struct Cli {
 #[derive(Deserialize, Debug)]
 struct Config {
     log_level: Option<String>,
+    use_db_persistence: Option<bool>,
     monitor: Vec<monitor::MonitorArgs>,
     splunk: Option<monitor::ReporterArgs>,
     slack: Option<monitor::ReporterArgs>,
@@ -45,8 +46,11 @@ fn parse_config(path: String) -> Config {
     toml::from_str(input).expect("failed to parse configuration file")
 }
 
-async fn open_db(path: &str) -> Result<Connection, tokio_rusqlite::Error> {
-    let db = Connection::open(path).await?;
+async fn open_db(path: Option<&str>) -> Result<Connection, tokio_rusqlite::Error> {
+    let db = match path {
+        Some(path) => Connection::open(path).await?,
+        None => Connection::open_in_memory().await?,
+    };
 
     // TODO: there's a better way to handle the table creation errors
     // create results table if it doesn't exist
@@ -132,11 +136,17 @@ async fn main() {
         .with_thread_ids(true)
         .init();
     // dbg!(&config);
-    let db = Box::leak(Box::new(
-        open_db("./synthehol.db")
-            .await
-            .expect("failed to open sqlite database"),
-    ));
+    let db = if config.use_db_persistence.unwrap_or(true) {
+        Box::leak(Box::new(
+            open_db(Some("./synthehol.db"))
+                .await
+                .expect("failed to open sqlite database"),
+        ))
+    } else {
+        Box::leak(Box::new(
+            open_db(None).await.expect("failed to open sqlite database"),
+        ))
+    };
 
     // parse all our monitor configs
     // there's some duplicated work with the reporters being

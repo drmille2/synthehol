@@ -63,6 +63,7 @@ impl<'a> Monitor<'a> {
     }
 
     pub fn register_db(&mut self, db: &'static tokio_rusqlite::Connection) {
+        // self.db = Some(db);
         self.db = Some(db);
         // let path = self.db.as_ref().unwrap().path().unwrap_or("<no db path>");
         info!("[{}] registered database", self.name);
@@ -182,10 +183,8 @@ impl<'a> Monitor<'a> {
         self.success_tally = 0;
         self.failure_tally += 1;
         debug!(
-            "[{}] incrementing failure count ({} -> {})",
-            self.name,
-            self.failure_tally - 1,
-            self.failure_tally
+            "[{}] incrementing failure count (now {})",
+            self.name, self.failure_tally
         );
     }
 
@@ -200,10 +199,8 @@ impl<'a> Monitor<'a> {
         }
         self.success_tally += 1;
         debug!(
-            "[{}] incrementing success count ({} -> {})",
-            self.name,
-            self.success_tally - 1,
-            self.success_tally
+            "[{}] incrementing success count (now {})",
+            self.name, self.success_tally
         );
     }
 
@@ -277,6 +274,29 @@ impl<'a> Monitor<'a> {
                         duration,
                         status
                     ],
+                )
+                .map_err(|e| e.into())
+            })
+            .await?;
+        }
+        self.prune_results().await?;
+        Ok(())
+    }
+
+    async fn prune_results(&self) -> Result<(), tokio_rusqlite::Error> {
+        let name = self.name.clone();
+        debug!("[{}] pruning results...", self.name);
+        if let Some(db) = self.db.as_ref() {
+            db.call(move |db| {
+                db.execute(
+                    "DELETE FROM results 
+                    WHERE id NOT IN 
+                    (
+                        SELECT id FROM results 
+                        ORDER BY (id) 
+                        DESC LIMIT 500
+                    )",
+                    params![name],
                 )
                 .map_err(|e| e.into())
             })
