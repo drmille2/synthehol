@@ -63,9 +63,7 @@ impl<'a> Monitor<'a> {
     }
 
     pub fn register_db(&mut self, db: &'static tokio_rusqlite::Connection) {
-        // self.db = Some(db);
         self.db = Some(db);
-        // let path = self.db.as_ref().unwrap().path().unwrap_or("<no db path>");
         info!("[{}] registered database", self.name);
     }
 
@@ -95,15 +93,13 @@ impl<'a> Monitor<'a> {
     pub async fn stop(&mut self) {
         info!("[{}] stopping...", self.name);
         self.running = false;
-        if let Err(e) = self.save().await {
-            error!("[{}] failed to save monitor state ({})", self.name, e);
-        }
     }
 
     // run a single monitor cycle, returning the overall duration
     async fn run(&mut self) -> u64 {
         let start = Instant::now();
         let result = self.execute();
+        let mut out = 0;
         match result {
             Ok(mut r) => {
                 if r.status != 0 {
@@ -136,13 +132,17 @@ impl<'a> Monitor<'a> {
                     }
                 };
                 let stop = Instant::now();
-                (stop - start).as_micros() as u64
+                out = (stop - start).as_micros() as u64;
             }
             Err(e) => {
                 error!(e);
-                0
             }
         }
+        // save monitor state after each run
+        if let Err(e) = self.save().await {
+            error!("[{}] failed to save monitor state ({})", self.name, e);
+        }
+        out
     }
 
     /// a single execution of the monitor target
@@ -306,6 +306,25 @@ impl<'a> Monitor<'a> {
     }
 
     async fn save(&self) -> Result<(), String> {
+        self.save_reporters().await?;
+        self.save_monitor().await?;
+        Ok(())
+    }
+    async fn load(&mut self) -> Result<(), String> {
+        self.load_reporters().await?;
+        self.load_monitor().await?;
+        Ok(())
+    }
+
+    async fn save_reporters(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    async fn load_reporters(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    async fn save_monitor(&self) -> Result<(), String> {
         let name = self.name.clone();
         let level_index = self.level_index;
         let failure_tally = self.failure_tally;
@@ -345,7 +364,7 @@ impl<'a> Monitor<'a> {
         Ok(())
     }
 
-    async fn load(&mut self) -> Result<(), String> {
+    async fn load_monitor(&mut self) -> Result<(), String> {
         type MonitorState = (String, usize, u64, u64);
         let mut state = Vec::new();
         let name = self.name.clone();
