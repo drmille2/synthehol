@@ -120,11 +120,11 @@ impl Reporter for SlackReporter {
         }
     }
 
-    fn state(&self) -> Option<Vec<u8>> {
-        None
+    fn state(&self) -> Vec<u8> {
+        Vec::new()
     }
 
-    fn restore(&mut self, _: Option<Vec<u8>>) -> Result<(), String> {
+    fn restore(&mut self, _: Vec<u8>) -> Result<(), String> {
         Ok(())
     }
 }
