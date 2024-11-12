@@ -120,11 +120,11 @@ impl Reporter for SlackReporter {
         }
     }
 
-    fn state(&self) -> Vec<u8> {
+    fn get_state(&self) -> Vec<u8> {
         Vec::new()
     }
 
-    fn restore(&mut self, _: Vec<u8>) -> Result<(), String> {
+    fn load_state(&mut self, _: Vec<u8>) -> Result<(), String> {
         Ok(())
     }
 }

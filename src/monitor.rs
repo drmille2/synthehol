@@ -32,7 +32,7 @@ pub struct MonitorArgs {
     pub target: TargetArgs,
 }
 
-impl<'a> Monitor<'a> {
+impl Monitor<'_> {
     pub fn from_args(args: MonitorArgs) -> Self {
         let mut levels = Vec::new();
         for l in args.level.into_iter() {
@@ -328,7 +328,7 @@ impl<'a> Monitor<'a> {
     async fn save_reporters(&self) -> Result<(), String> {
         for reporter in self.reporters.keys() {
             let name = self.name.clone();
-            let state = self.reporters[reporter].state();
+            let state = self.reporters[reporter].get_state();
             debug!("[{}] saving {} reporter state...", self.name, reporter);
             if let Some(db) = self.db.as_ref() {
                 db.call(move |db| {
@@ -361,7 +361,42 @@ impl<'a> Monitor<'a> {
         Ok(())
     }
 
-    async fn load_reporters(&self) -> Result<(), String> {
+    async fn load_reporters(&'static mut self) -> Result<(), String> {
+        type ReporterState = (String, String, Vec<u8>);
+        for mut reporter in self.reporters.iter() {
+            let reporter_name = reporter.0;
+            let monitor_name = self.name.clone();
+            let mut state = Vec::new();
+            debug!("[{}] load [...] reporter state...", self.name);
+            if let Some(db) = self.db.as_ref() {
+                state = db
+                    .call(move |db| {
+                        let mut stmt = db.prepare(
+                            "SELECT
+                            name,
+                            monitor_name,
+                            state
+                        FROM reporter_state WHERE name == ?1 AND monitor_name = ?2",
+                        )?;
+                        let state = stmt
+                            .query_map([reporter_name, &monitor_name], |row| {
+                                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                            })?
+                            .collect::<std::result::Result<Vec<ReporterState>, rusqlite::Error>>(
+                            )?;
+                        Ok(state)
+                    })
+                    .await
+                    .map_err(|e| format!("failed to read reporter state ({})", e))?;
+            }
+            if let Some(s) = state.last() {
+                // self.reporters
+                //     .get_mut(reporter)
+                //     .unwrap()
+                let r = reporter.1; //.load_state(s.2.clone());
+            }
+            debug!("[{}] reporter state load completed", self.name);
+        }
         Ok(())
     }
 
@@ -571,8 +606,8 @@ pub type ReporterArgs = toml::Table;
 pub trait Reporter {
     async fn report(&self, _: &MonitorResult);
     async fn clear(&self, _: &MonitorResult);
-    fn state(&self) -> Vec<u8>;
-    fn restore(&mut self, _: Vec<u8>) -> Result<(), String>;
+    fn get_state(&self) -> Vec<u8>;
+    fn load_state(&mut self, _: Vec<u8>) -> Result<(), String>;
 }
 
 /// Result returned from a single execution of a monitor target
