@@ -62,6 +62,8 @@ impl<'a> Monitor<'a> {
         info!("[{}] registered reporter: {}", self.name, name);
     }
 
+    /// Registers a sqlite database to the monitor for saving/load of state
+    /// and the recording of monitor results
     pub fn register_db(&mut self, db: &'static tokio_rusqlite::Connection) {
         self.db = Some(db);
         info!("[{}] registered database", self.name);
@@ -90,12 +92,13 @@ impl<'a> Monitor<'a> {
         }
     }
 
+    /// stops the monitor loop
     pub async fn stop(&mut self) {
         info!("[{}] stopping...", self.name);
         self.running = false;
     }
 
-    // run a single monitor cycle, returning the overall duration
+    /// run a single monitor cycle, returning the overall duration
     async fn run(&mut self) -> u64 {
         let start = Instant::now();
         let result = self.execute();
@@ -188,7 +191,7 @@ impl<'a> Monitor<'a> {
         );
     }
 
-    // Increment success tally and clear if needed
+    /// Increment success tally and clear if needed
     fn incr_success(&mut self) {
         self.failure_tally = 0;
         // this will keep us from incrementing this indefinitely
@@ -224,6 +227,7 @@ impl<'a> Monitor<'a> {
         );
     }
 
+    /// record the given result to the configured db, then prune
     async fn record_result(&self, res: MonitorResult) -> Result<(), tokio_rusqlite::Error> {
         let MonitorResult {
             name: monitor_name,
@@ -283,6 +287,7 @@ impl<'a> Monitor<'a> {
         Ok(())
     }
 
+    /// prune results table down to the most recent 500
     async fn prune_results(&self) -> Result<(), tokio_rusqlite::Error> {
         let name = self.name.clone();
         debug!("[{}] pruning results...", self.name);
@@ -305,18 +310,54 @@ impl<'a> Monitor<'a> {
         Ok(())
     }
 
+    /// save state for monitor and all reporters
     async fn save(&self) -> Result<(), String> {
         self.save_reporters().await?;
         self.save_monitor().await?;
         Ok(())
     }
+
+    /// load state for monitor and all reporters
     async fn load(&mut self) -> Result<(), String> {
         self.load_reporters().await?;
         self.load_monitor().await?;
         Ok(())
     }
 
+    /// collect and save the state of all reporters
     async fn save_reporters(&self) -> Result<(), String> {
+        for reporter in self.reporters.keys() {
+            let name = self.name.clone();
+            let state = self.reporters[reporter].state();
+            debug!("[{}] saving {} reporter state...", self.name, reporter);
+            if let Some(db) = self.db.as_ref() {
+                db.call(move |db| {
+                    db.execute(
+                        "INSERT INTO
+                            reporter_state (
+                                name,
+                                monitor_name,
+                                state
+                            )
+                            VALUES (
+                                ?1,
+                                ?2,
+                                ?3
+                            )
+                        ON CONFLICT (name, monitor_name) DO
+                        UPDATE
+                        SET
+                            state = EXCLUDED.state
+                        ",
+                        params![name, state],
+                    )
+                    .map_err(|e| e.into())
+                })
+                .await
+                .map_err(|e| e.to_string())?;
+            }
+            debug!("[{}] {} reporter state save completed", self.name, reporter);
+        }
         Ok(())
     }
 
@@ -324,6 +365,12 @@ impl<'a> Monitor<'a> {
         Ok(())
     }
 
+    /// save the current state of the monitor to db, including:
+    ///   - level_index
+    ///   - failure_tally
+    ///   - success_tally
+    ///
+    /// updates any previous entry
     async fn save_monitor(&self) -> Result<(), String> {
         let name = self.name.clone();
         let level_index = self.level_index;
@@ -364,6 +411,7 @@ impl<'a> Monitor<'a> {
         Ok(())
     }
 
+    /// load the monitor state from the configured db
     async fn load_monitor(&mut self) -> Result<(), String> {
         type MonitorState = (String, usize, u64, u64);
         let mut state = Vec::new();
@@ -523,10 +571,11 @@ pub type ReporterArgs = toml::Table;
 pub trait Reporter {
     async fn report(&self, _: &MonitorResult);
     async fn clear(&self, _: &MonitorResult);
-    fn state(&self) -> Option<Vec<u8>>;
-    fn restore(&mut self, _: Option<Vec<u8>>) -> Result<(), String>;
+    fn state(&self) -> Vec<u8>;
+    fn restore(&mut self, _: Vec<u8>) -> Result<(), String>;
 }
 
+/// Result returned from a single execution of a monitor target
 #[derive(Debug, Serialize, Clone)]
 pub struct MonitorResult {
     pub name: String,

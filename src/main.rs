@@ -121,6 +121,18 @@ async fn open_db(path: Option<&str>) -> Result<Connection, tokio_rusqlite::Error
     .await
     .expect("error creating reporter_state table");
 
+    // add unique reporter state index
+    db.call(|db| {
+        db.execute(
+            "CREATE UNIQUE INDEX idx_reporter_state_name_monitor_name 
+                ON reporter_state (name, monitor_name);",
+            [],
+        )
+        .map_err(|e| e.into())
+    })
+    .await
+    .expect("error creating reporter_state table");
+
     Ok(db)
 }
 
