@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::{Command, ExitStatus};
@@ -8,6 +7,8 @@ use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 use tracing::{debug, error, info};
+
+use crate::db;
 
 /// Represents a monitor that executes a target and reports the result
 /// based on the current level
@@ -21,7 +22,8 @@ pub struct Monitor<'a> {
     success_tally: u64,
     target: Target,
     running: bool,
-    db: Option<&'a tokio_rusqlite::Connection>,
+    // db: Option<&'a tokio_rusqlite::Connection>,
+    db: &'a db::SynthDb,
 }
 
 #[derive(Deserialize, Debug)]
@@ -48,7 +50,7 @@ impl Monitor<'_> {
             success_tally: 0,
             target: Target::from_args(args.target),
             running: false,
-            db: None,
+            db: &db::SynthDb { db: None },
         }
     }
 
@@ -64,8 +66,8 @@ impl Monitor<'_> {
 
     /// Registers a sqlite database to the monitor for saving/load of state
     /// and the recording of monitor results
-    pub fn register_db(&mut self, db: &'static tokio_rusqlite::Connection) {
-        self.db = Some(db);
+    pub fn register_db(&mut self, db: &'static db::SynthDb) {
+        self.db = db;
         info!("[{}] registered database", self.name);
     }
 
@@ -73,8 +75,11 @@ impl Monitor<'_> {
     pub async fn start(&mut self, cancel: CancellationToken) {
         info!("[{}] starting", self.name);
         self.running = true;
-        if let Err(e) = self.load().await {
+        if let Err(e) = self.load_monitor().await {
             info!("[{}] failed to load monitor state ({})", self.name, e);
+        }
+        if let Err(e) = self.load_reporters().await {
+            info!("[{}] failed to load reporter state ({})", self.name, e);
         }
         let sleep = tokio::time::sleep(Duration::from_secs(self.interval));
         tokio::pin!(sleep);
@@ -123,7 +128,7 @@ impl Monitor<'_> {
                 // this needs to be set after we increment the trigger result
                 r.level_name = self.levels[self.level_index].name.clone();
                 self.report(&r).await;
-                match self.record_result(r).await {
+                match self.db.record_result(r).await {
                     Ok(_) => {
                         debug!("[{}] recorded result in local db", self.name)
                     }
@@ -141,8 +146,11 @@ impl Monitor<'_> {
                 error!(e);
             }
         }
-        // save monitor state after each run
-        if let Err(e) = self.save().await {
+        // save monitor & reporter state after each run
+        if let Err(e) = self.save_monitor().await {
+            error!("[{}] failed to save monitor state ({})", self.name, e);
+        }
+        if let Err(e) = self.save_reporters().await {
             error!("[{}] failed to save monitor state ({})", self.name, e);
         }
         out
@@ -227,256 +235,57 @@ impl Monitor<'_> {
         );
     }
 
-    /// record the given result to the configured db, then prune
-    async fn record_result(&self, res: MonitorResult) -> Result<(), tokio_rusqlite::Error> {
-        let MonitorResult {
-            name: monitor_name,
-            level_name,
-            start_time,
-            target: target_name,
-            args,
-            stdout,
-            stderr,
-            duration,
-            status,
-        } = res;
-        if let Some(db) = self.db.as_ref() {
-            db.call(move |db| {
-                db.execute(
-                    "INSERT INTO
-                        results (
-                            monitor_name, 
-                            level_name,
-                            start_time,
-                            target_name,
-                            args,
-                            stdout,
-                            stderr,
-                            duration,
-                            status
-                        )
-                    VALUES (
-                            ?1,
-                            ?2,
-                            ?3,
-                            ?4,
-                            ?5,
-                            ?6,
-                            ?7,
-                            ?8,
-                            ?9
-                        )
-                    ",
-                    params![
-                        monitor_name,
-                        level_name,
-                        start_time,
-                        target_name,
-                        args,
-                        stdout,
-                        stderr,
-                        duration,
-                        status
-                    ],
-                )
-                .map_err(|e| e.into())
-            })
-            .await?;
-        }
-        self.prune_results().await?;
-        Ok(())
-    }
-
-    /// prune results table down to the most recent 500
-    async fn prune_results(&self) -> Result<(), tokio_rusqlite::Error> {
-        let name = self.name.clone();
-        debug!("[{}] pruning results...", self.name);
-        if let Some(db) = self.db.as_ref() {
-            db.call(move |db| {
-                db.execute(
-                    "DELETE FROM results 
-                    WHERE id NOT IN 
-                    (
-                        SELECT id FROM results 
-                        ORDER BY (id) 
-                        DESC LIMIT 500
-                    )",
-                    params![name],
-                )
-                .map_err(|e| e.into())
-            })
-            .await?;
-        }
-        Ok(())
-    }
-
-    /// save state for monitor and all reporters
-    async fn save(&self) -> Result<(), String> {
-        self.save_reporters().await?;
-        self.save_monitor().await?;
-        Ok(())
-    }
-
-    /// load state for monitor and all reporters
-    async fn load(&mut self) -> Result<(), String> {
-        self.load_reporters().await?;
-        self.load_monitor().await?;
-        Ok(())
-    }
-
     /// collect and save the state of all reporters
-    async fn save_reporters(&self) -> Result<(), String> {
-        for reporter in self.reporters.keys() {
+    async fn save_reporters(&self) -> Result<(), tokio_rusqlite::Error> {
+        for (reporter_name, reporter) in self.reporters.iter() {
             let name = self.name.clone();
-            let state = self.reporters[reporter].get_state();
-            debug!("[{}] saving {} reporter state...", self.name, reporter);
-            if let Some(db) = self.db.as_ref() {
-                db.call(move |db| {
-                    db.execute(
-                        "INSERT INTO
-                            reporter_state (
-                                name,
-                                monitor_name,
-                                state
-                            )
-                            VALUES (
-                                ?1,
-                                ?2,
-                                ?3
-                            )
-                        ON CONFLICT (name, monitor_name) DO
-                        UPDATE
-                        SET
-                            state = EXCLUDED.state
-                        ",
-                        params![name, state],
-                    )
-                    .map_err(|e| e.into())
-                })
-                .await
-                .map_err(|e| e.to_string())?;
-            }
-            debug!("[{}] {} reporter state save completed", self.name, reporter);
+            let state = reporter.get_state();
+            debug!("[{}] saving {} reporter state...", self.name, reporter_name);
+            self.db
+                .save_reporter_state(name, reporter_name.clone(), state)
+                .await?;
+            debug!(
+                "[{}] {} reporter state save completed",
+                self.name, reporter_name
+            );
         }
         Ok(())
     }
 
-    async fn load_reporters(&'static mut self) -> Result<(), String> {
-        type ReporterState = (String, String, Vec<u8>);
-        for mut reporter in self.reporters.iter() {
-            let reporter_name = reporter.0;
-            let monitor_name = self.name.clone();
-            let mut state = Vec::new();
-            debug!("[{}] load [...] reporter state...", self.name);
-            if let Some(db) = self.db.as_ref() {
-                state = db
-                    .call(move |db| {
-                        let mut stmt = db.prepare(
-                            "SELECT
-                            name,
-                            monitor_name,
-                            state
-                        FROM reporter_state WHERE name == ?1 AND monitor_name = ?2",
-                        )?;
-                        let state = stmt
-                            .query_map([reporter_name, &monitor_name], |row| {
-                                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-                            })?
-                            .collect::<std::result::Result<Vec<ReporterState>, rusqlite::Error>>(
-                            )?;
-                        Ok(state)
-                    })
-                    .await
-                    .map_err(|e| format!("failed to read reporter state ({})", e))?;
+    async fn load_reporters(&mut self) -> Result<(), tokio_rusqlite::Error> {
+        for (reporter_name, reporter) in self.reporters.iter_mut() {
+            let mon = self.name.clone();
+            let rep = reporter_name.clone();
+            if let Some(state) = self.db.get_reporter_state(mon, rep).await? {
+                reporter.load_state(state);
             }
-            if let Some(s) = state.last() {
-                // self.reporters
-                //     .get_mut(reporter)
-                //     .unwrap()
-                let r = reporter.1; //.load_state(s.2.clone());
-            }
-            debug!("[{}] reporter state load completed", self.name);
         }
         Ok(())
     }
 
-    /// save the current state of the monitor to db, including:
-    ///   - level_index
-    ///   - failure_tally
-    ///   - success_tally
-    ///
-    /// updates any previous entry
-    async fn save_monitor(&self) -> Result<(), String> {
+    async fn save_monitor(&self) -> Result<(), tokio_rusqlite::Error> {
         let name = self.name.clone();
-        let level_index = self.level_index;
-        let failure_tally = self.failure_tally;
-        let success_tally = self.success_tally;
         debug!("[{}] saving monitor state...", self.name);
-        if let Some(db) = self.db.as_ref() {
-            db.call(move |db| {
-                db.execute(
-                    "INSERT INTO
-                        monitor_state (
-                            name,
-                            level_index,
-                            failure_tally,
-                            success_tally
-                        )
-                        VALUES (
-                            ?1,
-                            ?2,
-                            ?3,
-                            ?4
-                        )
-                    ON CONFLICT (name) DO
-                    UPDATE
-                    SET
-                        level_index = EXCLUDED.level_index,
-                        failure_tally = EXCLUDED.failure_tally,
-                        success_tally = EXCLUDED.success_tally
-                    ",
-                    params![name, level_index, failure_tally, success_tally],
-                )
-                .map_err(|e| e.into())
-            })
-            .await
-            .map_err(|e| e.to_string())?;
-        }
+        self.db
+            .save_monitor_state(
+                name,
+                self.level_index,
+                self.failure_tally,
+                self.success_tally,
+            )
+            .await?;
         debug!("[{}] monitor state save completed", self.name);
         Ok(())
     }
 
     /// load the monitor state from the configured db
-    async fn load_monitor(&mut self) -> Result<(), String> {
-        type MonitorState = (String, usize, u64, u64);
-        let mut state = Vec::new();
-        let name = self.name.clone();
+    async fn load_monitor(&mut self) -> Result<(), tokio_rusqlite::Error> {
         debug!("[{}] load monitor state...", self.name);
-        if let Some(db) = self.db.as_ref() {
-            state = db
-                .call(move |db| {
-                    let mut stmt = db.prepare(
-                        "SELECT
-                        name,
-                        level_index,
-                        failure_tally,
-                        success_tally
-                    FROM monitor_state WHERE name == ?1",
-                    )?;
-                    let state = stmt
-                        .query_map([name], |row| {
-                            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-                        })?
-                        .collect::<std::result::Result<Vec<MonitorState>, rusqlite::Error>>()?;
-                    Ok(state)
-                })
-                .await
-                .map_err(|e| format!("failed to read monitor state ({})", e))?;
-        }
-        if let Some(s) = state.last() {
-            self.level_index = s.1;
-            self.failure_tally = s.2;
-            self.success_tally = s.3;
+        let state = self.db.get_monitor_state(self.name.clone()).await?;
+        if let Some(s) = state {
+            self.level_index = s.0;
+            self.failure_tally = s.1;
+            self.success_tally = s.2;
         }
         debug!("[{}] monitor state load completed", self.name);
         Ok(())
@@ -607,7 +416,7 @@ pub trait Reporter {
     async fn report(&self, _: &MonitorResult);
     async fn clear(&self, _: &MonitorResult);
     fn get_state(&self) -> Vec<u8>;
-    fn load_state(&mut self, _: Vec<u8>) -> Result<(), String>;
+    fn load_state(&mut self, _: Vec<u8>);
 }
 
 /// Result returned from a single execution of a monitor target

@@ -102,7 +102,5 @@ impl Reporter for SplunkReporter {
         Vec::new()
     }
 
-    fn load_state(&mut self, _: Vec<u8>) -> Result<(), String> {
-        Ok(())
-    }
+    fn load_state(&mut self, _: Vec<u8>) {}
 }
