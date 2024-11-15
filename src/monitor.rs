@@ -296,22 +296,22 @@ impl Monitor<'_> {
     }
 
     /// Dispatch all reporters based on current level
-    async fn report(&self, res: &MonitorResult) {
+    async fn report(&mut self, res: &MonitorResult) {
         let l = &self.levels[self.level_index];
         for k in l.reporters.iter() {
             let k_l = k.clone().to_lowercase();
-            if let Some(r) = &self.reporters.get(&k_l) {
+            if let Some(r) = &mut self.reporters.get_mut(&k_l) {
                 r.report(res).await;
             }
         }
     }
 
     /// Clear all reporters based on current level
-    async fn clear(&self, res: &MonitorResult) {
+    async fn clear(&mut self, res: &MonitorResult) {
         let l = &self.levels[self.level_index];
         for k in l.reporters.iter() {
             let k_l = k.clone().to_lowercase();
-            if let Some(r) = &self.reporters.get(&k_l) {
+            if let Some(r) = &mut self.reporters.get_mut(&k_l) {
                 r.clear(res).await;
             }
         }
@@ -417,8 +417,8 @@ pub type ReporterArgs = toml::Table;
 /// taking care of any formatting and delivery required
 #[async_trait]
 pub trait Reporter {
-    async fn report(&self, _: &MonitorResult);
-    async fn clear(&self, _: &MonitorResult);
+    async fn report(&mut self, _: &MonitorResult);
+    async fn clear(&mut self, _: &MonitorResult);
     fn get_state(&self) -> Option<Vec<u8>>;
     fn load_state(&mut self, _: Vec<u8>);
 }

@@ -2,6 +2,7 @@ mod db;
 mod monitor;
 mod reporters;
 
+use crate::reporters::pagerduty_reporter::PagerdutyReporter;
 use crate::reporters::slack_reporter::SlackReporter;
 use crate::reporters::splunk_reporter::SplunkReporter;
 
@@ -36,7 +37,7 @@ struct Config {
     monitor: Vec<monitor::MonitorArgs>,
     splunk: Option<monitor::ReporterArgs>,
     slack: Option<monitor::ReporterArgs>,
-    // pagerduty: Option<monitor::ReporterArgs>,
+    pagerduty: Option<monitor::ReporterArgs>,
 }
 
 fn parse_config(path: String) -> Config {
@@ -87,11 +88,20 @@ async fn main() {
             mon.register_reporter("slack", slack);
         }
 
+        // initialize and register splunk reporter if configured, panics on failure
         if let Some(r) = &config.splunk {
             let splunk = Box::new(
                 SplunkReporter::from_toml(r).expect("failed to initialize splunk reporter"),
             );
             mon.register_reporter("splunk", splunk);
+        }
+
+        // initialize and register pagerduty reporter if configured, panics on failure
+        if let Some(r) = &config.pagerduty {
+            let pagerduty = Box::new(
+                PagerdutyReporter::from_toml(r).expect("failed to initialize pagerduty reporter"),
+            );
+            mon.register_reporter("pagerduty", pagerduty);
         }
 
         mons.push(mon);

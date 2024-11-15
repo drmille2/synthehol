@@ -37,7 +37,7 @@ impl SlackReporter {
         if config.contains_key("template") {
             report_tmpl = config["template"]
                 .as_str()
-                .ok_or("parse to convert Slack template top string")?
+                .ok_or("failed to convert Slack template to string")?
                 .to_string();
         }
         let clear_tmpl = DEF_CLEAR_TEMPLATE.to_string();
@@ -81,8 +81,8 @@ impl SlackReporter {
             .post(&self.webhook_url)
             .header("Content-Type", "application/json")
             .json(content);
-        dbg!(content);
-        dbg!(&res);
+        // dbg!(content);
+        // dbg!(&res);
         let res = res.send().await;
         match res {
             Ok(r) => debug!("slack report successful ({})", r.status()),
@@ -94,7 +94,7 @@ impl SlackReporter {
 #[async_trait]
 impl Reporter for SlackReporter {
     #[instrument]
-    async fn report(&self, output: &MonitorResult) {
+    async fn report(&mut self, output: &MonitorResult) {
         let slack_content = self.format("report", output);
         match slack_content {
             Ok(slack_content) => {
@@ -107,7 +107,7 @@ impl Reporter for SlackReporter {
     }
 
     #[instrument]
-    async fn clear(&self, output: &MonitorResult) {
+    async fn clear(&mut self, output: &MonitorResult) {
         let slack_content = self.format("clear", output);
         match slack_content {
             Ok(slack_content) => {

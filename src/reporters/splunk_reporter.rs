@@ -77,7 +77,7 @@ impl SplunkReporter {
 #[async_trait]
 impl Reporter for SplunkReporter {
     #[instrument]
-    async fn report(&self, output: &MonitorResult) {
+    async fn report(&mut self, output: &MonitorResult) {
         let client = reqwest::Client::new();
         let output = self.format(output);
         let res = client
@@ -93,7 +93,7 @@ impl Reporter for SplunkReporter {
         }
     }
 
-    async fn clear(&self, _: &MonitorResult) {
+    async fn clear(&mut self, _: &MonitorResult) {
         // nothing to do here for splunk
         return;
     }
