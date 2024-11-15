@@ -119,6 +119,12 @@ impl Reporter for SlackReporter {
             }
         }
     }
+
+    fn get_state(&self) -> Vec<u8> {
+        Vec::new()
+    }
+
+    fn load_state(&mut self, _: Vec<u8>) {}
 }
 
 const DEF_REPORT_TEMPLATE: &str = "*Monitor: {{res.name}} [level: {{res.level_name}}*] 

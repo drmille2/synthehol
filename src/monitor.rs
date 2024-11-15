@@ -2,15 +2,17 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::{Command, ExitStatus};
-use std::thread;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::time::{Duration, Instant};
+use tokio_util::sync::CancellationToken;
 use tracing::instrument;
-use tracing::{debug, error, info, Level as tLevel};
+use tracing::{debug, error, info};
+
+use crate::db;
 
 /// Represents a monitor that executes a target and reports the result
 /// based on the current level
-pub struct Monitor {
+pub struct Monitor<'a> {
     pub name: String,
     pub interval: u64,
     levels: Vec<Level>,
@@ -19,6 +21,9 @@ pub struct Monitor {
     failure_tally: u64,
     success_tally: u64,
     target: Target,
+    running: bool,
+    // db: Option<&'a tokio_rusqlite::Connection>,
+    db: &'a db::SynthDb,
 }
 
 #[derive(Deserialize, Debug)]
@@ -29,7 +34,7 @@ pub struct MonitorArgs {
     pub target: TargetArgs,
 }
 
-impl Monitor {
+impl Monitor<'_> {
     pub fn from_args(args: MonitorArgs) -> Self {
         let mut levels = Vec::new();
         for l in args.level.into_iter() {
@@ -44,6 +49,8 @@ impl Monitor {
             failure_tally: 0,
             success_tally: 0,
             target: Target::from_args(args.target),
+            running: false,
+            db: &db::SynthDb { db: None },
         }
     }
 
@@ -57,58 +64,121 @@ impl Monitor {
         info!("[{}] registered reporter: {}", self.name, name);
     }
 
-    /// Begin monitoring and reporting loop, does not terminate
-    /// TODO: add a .stop() method
-    pub async fn start(&mut self) {
+    /// Registers a sqlite database to the monitor for saving/load of state
+    /// and the recording of monitor results
+    pub fn register_db(&mut self, db: &'static db::SynthDb) {
+        self.db = db;
+        info!("[{}] registered database", self.name);
+    }
+
+    /// Begin monitoring and reporting loop, shuts down gracefully on cancellation
+    pub async fn start(&mut self, cancel: CancellationToken) {
         info!("[{}] starting", self.name);
-        let mut sleep = Duration::new(0, 0);
-        loop {
-            let res = self.run();
-            match res {
-                Ok(mut r) => {
-                    if r.status != 0 {
-                        self.incr_failure();
-                        let l = &self.levels[self.level_index];
-                        if l.errors_to_escalate <= self.failure_tally {
-                            self.escalate()
-                        }
-                    } else {
-                        self.incr_success();
-                        let l = &self.levels[self.level_index];
-                        if l.successes_to_clear <= self.success_tally {
-                            self.clear(&r).await;
-                            self.reset()
-                        }
-                    }
-                    // this needs to be set after we increment the trigger result
-                    r.level_name = self.levels[self.level_index].name.clone();
-                    self.report(&r).await;
-                    // this will only be true if we perform a reset()
-                    sleep = Duration::from_secs(self.interval) - Duration::from_micros(r.duration);
-                }
-                Err(e) => {
-                    error!(e);
+        self.running = true;
+        if let Err(e) = self.load_monitor().await {
+            info!("[{}] failed to load monitor state ({})", self.name, e);
+        }
+        if let Err(e) = self.load_reporters().await {
+            info!("[{}] failed to load reporter state ({})", self.name, e);
+        }
+        let sleep = tokio::time::sleep(Duration::from_secs(self.interval));
+        tokio::pin!(sleep);
+        let mut duration = self.run().await;
+        while self.running {
+            tokio::select! {
+                _ = cancel.cancelled() => { self.stop().await }
+                _ = &mut sleep => {
+                    debug!("[{}] slept {:?}", self.name, duration);
+                    let d = Instant::now() + Duration::from_secs(self.interval) - Duration::from_micros(duration);
+                    sleep.as_mut().reset(d);
+                    duration = self.run().await
                 }
             }
-
-            thread::sleep(sleep);
         }
     }
 
-    /// Run a single execution of the monitor target
-    fn run(&self) -> Result<MonitorResult, String> {
+    /// stops the monitor loop
+    pub async fn stop(&mut self) {
+        info!("[{}] stopping...", self.name);
+        self.running = false;
+    }
+
+    /// run a single monitor cycle, returning the overall duration
+    async fn run(&mut self) -> u64 {
+        let start = Instant::now();
+        let result = self.execute();
+        let mut out = 0;
+        match result {
+            Ok(mut r) => {
+                if r.status != 0 {
+                    self.incr_failure();
+                    let l = &self.levels[self.level_index];
+                    if l.errors_to_escalate <= self.failure_tally {
+                        self.escalate()
+                    }
+                } else {
+                    self.incr_success();
+                    let l = &self.levels[self.level_index];
+                    if l.successes_to_clear <= self.success_tally {
+                        // is this always the right order?
+                        self.clear(&r).await;
+                        self.reset_level()
+                    }
+                }
+                // this needs to be set after we increment the trigger result
+                r.level_name = self.levels[self.level_index].name.clone();
+                self.report(&r).await;
+                match self.db.save_result(r).await {
+                    Ok(_) => {
+                        debug!("[{}] recorded result in local db", self.name)
+                    }
+                    Err(e) => {
+                        error!(
+                            "[{}] error while attempting to save result in db ({})",
+                            self.name, e
+                        )
+                    }
+                };
+                if let Err(e) = self.db.prune_results().await {
+                    error!("[{}] error while pruning result records ({})", self.name, e)
+                }
+                let stop = Instant::now();
+                out = (stop - start).as_micros() as u64;
+            }
+            Err(e) => {
+                error!(e);
+            }
+        }
+        // save monitor & reporter state after each run
+        if let Err(e) = self.save_monitor().await {
+            error!("[{}] failed to save monitor state ({})", self.name, e);
+        }
+        if let Err(e) = self.save_reporters().await {
+            error!("[{}] failed to save monitor state ({})", self.name, e);
+        }
+        out
+    }
+
+    /// a single execution of the monitor target
+    fn execute(&self) -> Result<MonitorResult, String> {
         info!("[{}] executing target: {}", self.name, self.target.path);
         let res = self.target.run();
         match res {
             Ok(r) => {
                 let args = self.target.args.clone().join(",");
-                debug!(
+                info!(
                     "[{}] execution completed for target: {} ({} μs)",
                     self.name, self.target.path, r.duration
                 );
+
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("System time error")
+                    .as_millis() as u64;
                 Ok(MonitorResult {
                     name: self.name.clone(),
                     level_name: String::new(),
+                    start_time: now,
                     stdout: r.stdout,
                     stderr: r.stderr,
                     duration: r.duration,
@@ -127,13 +197,12 @@ impl Monitor {
         self.success_tally = 0;
         self.failure_tally += 1;
         debug!(
-            "incrementing failure count (was {}, now {})",
-            self.failure_tally - 1,
-            self.failure_tally
+            "[{}] incrementing failure count (now {})",
+            self.name, self.failure_tally
         );
     }
 
-    // Increment success tally and clear if needed
+    /// Increment success tally and clear if needed
     fn incr_success(&mut self) {
         self.failure_tally = 0;
         // this will keep us from incrementing this indefinitely
@@ -144,9 +213,8 @@ impl Monitor {
         }
         self.success_tally += 1;
         debug!(
-            "incrementing success count (was {}, now {})",
-            self.success_tally - 1,
-            self.success_tally
+            "[{}] incrementing success count (now {})",
+            self.name, self.success_tally
         );
     }
 
@@ -154,20 +222,76 @@ impl Monitor {
     fn escalate(&mut self) {
         if self.level_index + 1 < self.levels.len() {
             self.level_index += 1;
+            debug!(
+                "[{}] escalated monitor level (now {})",
+                self.name, self.levels[self.level_index].name
+            );
         }
+    }
+
+    /// Used to reset level after enough successful monitor runs
+    fn reset_level(&mut self) {
+        self.level_index = 0;
         debug!(
-            "escalated monitor level (was {}, now {})",
-            self.levels[self.level_index - 1].name,
-            self.levels[self.level_index].name
+            "[{}] reset level (now {})",
+            self.name, self.levels[self.level_index].name
         );
     }
 
-    /// Used to reset level & failure tally after a successful monitor run
-    fn reset(&mut self) {
-        self.level_index = 0;
-        self.failure_tally = 0;
-        self.success_tally = 0;
-        debug!("reset level & failure count for monitor: {}", self.name);
+    /// collect and save the state of all reporters
+    async fn save_reporters(&self) -> Result<(), tokio_rusqlite::Error> {
+        for (reporter_name, reporter) in self.reporters.iter() {
+            let name = self.name.clone();
+            let state = reporter.get_state();
+            debug!("[{}] saving {} reporter state...", self.name, reporter_name);
+            self.db
+                .save_reporter_state(name, reporter_name.clone(), state)
+                .await?;
+            debug!(
+                "[{}] {} reporter state save completed",
+                self.name, reporter_name
+            );
+        }
+        Ok(())
+    }
+
+    async fn load_reporters(&mut self) -> Result<(), tokio_rusqlite::Error> {
+        for (reporter_name, reporter) in self.reporters.iter_mut() {
+            let mon = self.name.clone();
+            let rep = reporter_name.clone();
+            if let Some(state) = self.db.get_reporter_state(mon, rep).await? {
+                reporter.load_state(state);
+            }
+        }
+        Ok(())
+    }
+
+    async fn save_monitor(&self) -> Result<(), tokio_rusqlite::Error> {
+        let name = self.name.clone();
+        debug!("[{}] saving monitor state...", self.name);
+        self.db
+            .save_monitor_state(
+                name,
+                self.level_index,
+                self.failure_tally,
+                self.success_tally,
+            )
+            .await?;
+        debug!("[{}] monitor state save completed", self.name);
+        Ok(())
+    }
+
+    /// load the monitor state from the configured db
+    async fn load_monitor(&mut self) -> Result<(), tokio_rusqlite::Error> {
+        debug!("[{}] load monitor state...", self.name);
+        let state = self.db.get_monitor_state(self.name.clone()).await?;
+        if let Some(s) = state {
+            self.level_index = s.0;
+            self.failure_tally = s.1;
+            self.success_tally = s.2;
+        }
+        debug!("[{}] monitor state load completed", self.name);
+        Ok(())
     }
 
     /// Dispatch all reporters based on current level
@@ -259,7 +383,7 @@ impl Target {
     }
 
     /// Run the target, returning duration and other execution details
-    #[instrument(level=tLevel::DEBUG)]
+    #[instrument(level=tracing::Level::DEBUG)]
     fn run(&self) -> Result<TargetOutput, String> {
         let env = self.env.clone();
         let start = Instant::now();
@@ -268,7 +392,7 @@ impl Target {
             .args(&self.args)
             .envs(env)
             .output()
-            .map_err(|e| format!("failed to run target ({0})", e))?; // TODO: handle it
+            .map_err(|e| format!("failed to run target ({0})", e))?;
         let stop = Instant::now();
         let duration = (stop - start).as_micros() as u64;
         let status = output.status;
@@ -294,12 +418,16 @@ pub type ReporterArgs = toml::Table;
 pub trait Reporter {
     async fn report(&self, _: &MonitorResult);
     async fn clear(&self, _: &MonitorResult);
+    fn get_state(&self) -> Vec<u8>;
+    fn load_state(&mut self, _: Vec<u8>);
 }
 
-#[derive(Debug, Serialize)]
+/// Result returned from a single execution of a monitor target
+#[derive(Debug, Serialize, Clone)]
 pub struct MonitorResult {
     pub name: String,
     pub level_name: String,
+    pub start_time: u64,
     pub target: String,
     pub args: String,
     pub stdout: String,

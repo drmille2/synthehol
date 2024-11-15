@@ -97,4 +97,10 @@ impl Reporter for SplunkReporter {
         // nothing to do here for splunk
         return;
     }
+
+    fn get_state(&self) -> Vec<u8> {
+        Vec::new()
+    }
+
+    fn load_state(&mut self, _: Vec<u8>) {}
 }
