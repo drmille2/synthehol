@@ -101,7 +101,7 @@ impl SynthDb {
         if let Some(db) = self.db {
             db.call(|db| {
                 db.execute(
-                    "CREATE UNIQUE INDEX idx_reporter_state_name_monitor_name 
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_reporter_state_name_monitor_name 
                         ON reporter_state (name, monitor_name);",
                     [],
                 )
@@ -113,7 +113,7 @@ impl SynthDb {
     }
 
     #[instrument]
-    pub async fn record_result(&self, res: MonitorResult) -> Result<(), tokio_rusqlite::Error> {
+    pub async fn save_result(&self, res: MonitorResult) -> Result<(), tokio_rusqlite::Error> {
         let MonitorResult {
             name: monitor_name,
             level_name,
@@ -322,7 +322,7 @@ impl SynthDb {
 
     /// prune results table down to the most recent 500
     #[instrument]
-    pub async fn prune_results(&self, name: String) -> Result<(), tokio_rusqlite::Error> {
+    pub async fn prune_results(&self) -> Result<(), tokio_rusqlite::Error> {
         if let Some(db) = self.db {
             db.call(move |db| {
                 db.execute(
@@ -333,7 +333,7 @@ impl SynthDb {
                         ORDER BY (id) 
                         DESC LIMIT 500
                     )",
-                    params![name],
+                    (),
                 )
                 .map_err(|e| e.into())
             })

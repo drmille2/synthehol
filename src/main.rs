@@ -44,96 +44,6 @@ fn parse_config(path: String) -> Config {
     toml::from_str(input).expect("failed to parse configuration file")
 }
 
-// async fn open_db(path: Option<&str>) -> Result<Connection, tokio_rusqlite::Error> {
-//     let db = match path {
-//         Some(path) => Connection::open(path).await?,
-//         None => Connection::open_in_memory().await?,
-//     };
-
-//     // TODO: there's a better way to handle the table creation errors
-//     // create results table if it doesn't exist
-//     debug!("setting sqlite pragmas...");
-//     db.call(|db| {
-//         db.execute("PRAGMA cache_size = -4096", [])
-//             .map_err(|e| e.into())
-//     })
-//     .await
-//     .unwrap_or_else(|e| {
-//         error!("failed to set pragmas ({})", e);
-//         0
-//     });
-//     debug!("attempting to create results table...");
-//     db.call(|db| {
-//         db.execute(
-//             "CREATE TABLE IF NOT EXISTS results (
-//                 id    INTEGER PRIMARY KEY,
-//                 monitor_name  TEXT NOT NULL,
-//                 level_name TEXT NOT NULL,
-//                 start_time INTEGER NOT NULL,
-//                 target_name   TEXT NOT NULL,
-//                 args TEXT,
-//                 stdout TEXT,
-//                 stderr TEXT,
-//                 duration INTEGER,
-//                 status INTEGER
-//             )",
-//             [],
-//         )
-//         .map_err(|e| e.into())
-//     })
-//     .await
-//     .expect("error creating results table");
-
-//     // create monitor_state table if it doesn't exist
-//     debug!("attempting to create monitor_state table...");
-//     db.call(|db| {
-//         db.execute(
-//             "CREATE TABLE IF NOT EXISTS monitor_state (
-//                 id INTEGER PRIMARY KEY,
-//                 name  TEXT UNIQUE,
-//                 level_index INTEGER NOT NULL,
-//                 failure_tally INTEGER NOT NULL,
-//                 success_tally INTEGER NOT NULL
-//             )",
-//             [],
-//         )
-//         .map_err(|e| e.into())
-//     })
-//     .await
-//     .expect("error creating monitor_state table");
-
-//     // create reporter_state table if it doesn't exist
-//     debug!("attempting to create reporter_state table...");
-//     db.call(|db| {
-//         db.execute(
-//             "CREATE TABLE IF NOT EXISTS reporter_state (
-//                 id INTEGER PRIMARY KEY,
-//                 name TEXT,
-//                 monitor_name TEXT,
-//                 state BLOB
-//             )",
-//             [],
-//         )
-//         .map_err(|e| e.into())
-//     })
-//     .await
-//     .expect("error creating reporter_state table");
-
-//     // add unique reporter state index
-//     db.call(|db| {
-//         db.execute(
-//             "CREATE UNIQUE INDEX idx_reporter_state_name_monitor_name
-//                 ON reporter_state (name, monitor_name);",
-//             [],
-//         )
-//         .map_err(|e| e.into())
-//     })
-//     .await
-//     .expect("error creating reporter_state table");
-
-//     Ok(db)
-// }
-
 #[tokio::main]
 async fn main() {
     let cli_args = Cli::parse();
@@ -155,6 +65,9 @@ async fn main() {
             .await
             .expect("failed to open sqlite database")
     };
+    db.initialize_db()
+        .await
+        .expect("failed to initialize database");
     let db = Box::leak(Box::new(db));
 
     // parse all our monitor configs

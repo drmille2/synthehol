@@ -128,17 +128,20 @@ impl Monitor<'_> {
                 // this needs to be set after we increment the trigger result
                 r.level_name = self.levels[self.level_index].name.clone();
                 self.report(&r).await;
-                match self.db.record_result(r).await {
+                match self.db.save_result(r).await {
                     Ok(_) => {
                         debug!("[{}] recorded result in local db", self.name)
                     }
                     Err(e) => {
-                        debug!(
-                            "[{}] error while attempting to record result in local db ({})",
+                        error!(
+                            "[{}] error while attempting to save result in db ({})",
                             self.name, e
                         )
                     }
                 };
+                if let Err(e) = self.db.prune_results().await {
+                    error!("[{}] error while pruning result records ({})", self.name, e)
+                }
                 let stop = Instant::now();
                 out = (stop - start).as_micros() as u64;
             }
