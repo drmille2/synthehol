@@ -9,14 +9,14 @@ use tracing::instrument;
 pub struct PagerdutyReporter {
     appid: String,
     api_key: String,
-    endpoint: String
+    endpoint: String,
 }
 
 #[derive(Serialize, Debug)]
-struct PagerdutyEvent { }
+struct PagerdutyEvent {}
 
 #[derive(Serialize, Debug)]
-struct PagerdutyMsg { }
+struct PagerdutyMsg {}
 
 impl PagerdutyReporter {
     pub fn from_toml(config: &toml::Table) -> Result<Self, String> {
@@ -32,16 +32,16 @@ impl PagerdutyReporter {
             .as_str()
             .ok_or("missing Pagerduty endpoint config item")?
             .to_string();
-        Ok(Self{
+        Ok(Self {
             appid,
             api_key,
-            endpoint
+            endpoint,
         })
     }
 
     #[instrument]
     fn format(&self, _output: &MonitorResult) -> PagerdutyMsg {
-        PagerdutyMsg{}
+        PagerdutyMsg {}
     }
 }
 
@@ -64,5 +64,11 @@ impl Reporter for PagerdutyReporter {
     }
 
     #[instrument]
-    async fn clear(&self, _: &MonitorResult) { }
+    async fn clear(&self, _: &MonitorResult) {}
+
+    fn get_state(&self) -> Option<Vec<u8>> {
+        Some(Vec::new())
+    }
+
+    fn load_state(&mut self, _: Vec<u8>) {}
 }

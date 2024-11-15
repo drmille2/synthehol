@@ -241,16 +241,17 @@ impl Monitor<'_> {
     /// collect and save the state of all reporters
     async fn save_reporters(&self) -> Result<(), tokio_rusqlite::Error> {
         for (reporter_name, reporter) in self.reporters.iter() {
-            let name = self.name.clone();
-            let state = reporter.get_state();
-            debug!("[{}] saving {} reporter state...", self.name, reporter_name);
-            self.db
-                .save_reporter_state(name, reporter_name.clone(), state)
-                .await?;
-            debug!(
-                "[{}] {} reporter state save completed",
-                self.name, reporter_name
-            );
+            if let Some(state) = reporter.get_state() {
+                let name = self.name.clone();
+                debug!("[{}] saving {} reporter state...", self.name, reporter_name);
+                self.db
+                    .save_reporter_state(name, reporter_name.clone(), state)
+                    .await?;
+                debug!(
+                    "[{}] {} reporter state save completed",
+                    self.name, reporter_name
+                );
+            }
         }
         Ok(())
     }
@@ -418,7 +419,7 @@ pub type ReporterArgs = toml::Table;
 pub trait Reporter {
     async fn report(&self, _: &MonitorResult);
     async fn clear(&self, _: &MonitorResult);
-    fn get_state(&self) -> Vec<u8>;
+    fn get_state(&self) -> Option<Vec<u8>>;
     fn load_state(&mut self, _: Vec<u8>);
 }
 
