@@ -40,20 +40,28 @@ enum Action {
 #[derive(Serialize, Debug)]
 struct PagerdutyPayload {
     summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     timestamp: Option<String>,
     severity: Severity,
+    #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     component: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     group: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     class: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
 struct PagerdutyMsg {
+    #[serde(skip_serializing_if = "Option::is_none")]
     payload: Option<PagerdutyPayload>,
     routing_key: String,
     event_action: Action,
+    #[serde(skip_serializing_if = "Option::is_none")]
     dedup_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     client: Option<String>,
 }
 
@@ -66,6 +74,8 @@ struct PagerdutyResponse {
 
 impl PagerdutyReporter {
     pub fn from_toml(config: &toml::Table) -> Result<Self, String> {
+        // TODO: this whole section is so ugly
+
         let routing_key = config["routing_key"]
             .as_str()
             .ok_or("missing Pagerduty routing_key config item")?
@@ -74,11 +84,31 @@ impl PagerdutyReporter {
             .as_str()
             .ok_or("missing Pagerduty endpoint config item")?
             .to_string();
-        let source = config["source"].as_str().map(|x| x.to_string());
-        let component = config["component"].as_str().map(|x| x.to_string());
-        let client = config["client"].as_str().map(|x| x.to_string());
-        let group = config["group"].as_str().map(|x| x.to_string());
-        let class = config["class"].as_str().map(|x| x.to_string());
+
+        let mut source = Some("synthehol".to_owned());
+        if config.contains_key("source") {
+            source = config["source"].as_str().map(|x| x.to_string());
+        }
+
+        let mut component = None;
+        if config.contains_key("component") {
+            component = config["component"].as_str().map(|x| x.to_string());
+        }
+
+        let mut group = None;
+        if config.contains_key("group") {
+            group = config["group"].as_str().map(|x| x.to_string());
+        }
+
+        let mut class = None;
+        if config.contains_key("class") {
+            class = config["class"].as_str().map(|x| x.to_string());
+        }
+
+        let mut client = Some("synthehol".to_owned());
+        if config.contains_key("client") {
+            client = config["client"].as_str().map(|x| x.to_string());
+        }
 
         let mut report_tmpl = DEF_REPORT_TEMPLATE.to_string();
         if config.contains_key("template") {
@@ -134,6 +164,10 @@ impl PagerdutyReporter {
     #[instrument]
     async fn send(&self, content: &PagerdutyMsg) -> Result<PagerdutyResponse, String> {
         let client = reqwest::Client::new();
+        let dbg_content = serde_json::to_string(content)
+            .map_err(|e| format!("failed to json parse content ({})", e))?;
+        dbg!("pagerduty content: {:?}", dbg_content);
+
         let res = client
             .post(&self.endpoint)
             .header("Content-Type", "application/json")
@@ -141,11 +175,12 @@ impl PagerdutyReporter {
             .send()
             .await
             .map_err(|e| format!("failed to send pagerduty event ({})", e))?;
-        debug!("pagerduty report successful ({})", res.status());
+        // debug!("pagerduty report successful ({})", res.status());
         let body = res
             .text()
             .await
             .map_err(|e| format!("failed to read pagerduty response ({})", e))?;
+        debug!("pagerduty report sent successfully ({})", body);
         let v: PagerdutyResponse = serde_json::from_str(&body)
             .map_err(|e| format!("failed to deserialize pagerduty response ({})", e))?;
         Ok(v)
@@ -187,7 +222,7 @@ impl Reporter for PagerdutyReporter {
     }
 
     fn get_state(&self) -> Option<Vec<u8>> {
-        self.dedup_key.clone().map(|x| x.as_bytes().to_vec())
+        self.dedup_key.clone().map(|x| x.into_bytes())
     }
 
     fn load_state(&mut self, state: Vec<u8>) {
@@ -201,10 +236,10 @@ impl Reporter for PagerdutyReporter {
     }
 }
 
-const DEF_REPORT_TEMPLATE: &str = "*Monitor: {{res.name}} triggered [level: {{res.level_name}}*] 
-*command:* {{ res.target }} 
-*args:* {{ res.args }} 
-*stdout:* {{ res.stdout }} 
-*stderr:* {{ res.stderr }} 
-*result:*{{ res.status }} 
-*duration:* {{ res.duration }} μs";
+const DEF_REPORT_TEMPLATE: &str = "Monitor: {{res.name}} triggered [level: {{res.level_name}}] 
+command: {{ res.target }} 
+args: {{ res.args }} 
+stdout: {{ res.stdout }} 
+stderr: {{ res.stderr }} 
+result: {{ res.status }} 
+duration: {{ res.duration }} μs";
