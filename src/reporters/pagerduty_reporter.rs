@@ -4,6 +4,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use tracing::debug;
 use tracing::error;
+use tracing::info;
 use tracing::instrument;
 use tracing::warn;
 
@@ -164,10 +165,6 @@ impl PagerdutyReporter {
     #[instrument]
     async fn send(&self, content: &PagerdutyMsg) -> Result<PagerdutyResponse, String> {
         let client = reqwest::Client::new();
-        let dbg_content = serde_json::to_string(content)
-            .map_err(|e| format!("failed to json parse content ({})", e))?;
-        dbg!("pagerduty content: {:?}", dbg_content);
-
         let res = client
             .post(&self.endpoint)
             .header("Content-Type", "application/json")
@@ -175,11 +172,12 @@ impl PagerdutyReporter {
             .send()
             .await
             .map_err(|e| format!("failed to send pagerduty event ({})", e))?;
-        // debug!("pagerduty report successful ({})", res.status());
         let body = res
             .text()
             .await
             .map_err(|e| format!("failed to read pagerduty response ({})", e))?;
+        // TODO: parse result to catch events where the HTTP request is sent
+        // but we get a status code indicating a failure from pagerduty
         debug!("pagerduty report sent successfully ({})", body);
         let v: PagerdutyResponse = serde_json::from_str(&body)
             .map_err(|e| format!("failed to deserialize pagerduty response ({})", e))?;
@@ -227,7 +225,10 @@ impl Reporter for PagerdutyReporter {
 
     fn load_state(&mut self, state: Vec<u8>) {
         match String::from_utf8(state) {
-            Ok(state) => self.dedup_key = Some(state),
+            Ok(state) => {
+                info!("loaded pagerduty state ({})", state);
+                self.dedup_key = Some(state);
+            }
             Err(e) => {
                 error!("failed to load pagerduty state ({})", e);
                 self.dedup_key = None

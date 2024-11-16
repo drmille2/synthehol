@@ -232,7 +232,7 @@ impl SynthDb {
                         SET
                             state = EXCLUDED.state
                         ",
-                    params![mon, rep, state],
+                    params![rep, mon, state],
                 )
                 .map_err(|e| e.into())
             })
