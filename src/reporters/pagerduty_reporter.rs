@@ -187,10 +187,18 @@ impl Reporter for PagerdutyReporter {
     }
 
     fn get_state(&self) -> Option<Vec<u8>> {
-        Some(Vec::new())
+        self.dedup_key.clone().map(|x| x.as_bytes().to_vec())
     }
 
-    fn load_state(&mut self, _: Vec<u8>) {}
+    fn load_state(&mut self, state: Vec<u8>) {
+        match String::from_utf8(state) {
+            Ok(state) => self.dedup_key = Some(state),
+            Err(e) => {
+                error!("failed to load pagerduty state ({})", e);
+                self.dedup_key = None
+            }
+        }
+    }
 }
 
 const DEF_REPORT_TEMPLATE: &str = "*Monitor: {{res.name}} triggered [level: {{res.level_name}}*] 
