@@ -165,7 +165,10 @@ impl Monitor<'_> {
         let res = self.target.run();
         match res {
             Ok(r) => {
-                let args = self.target.args.clone().join(",");
+                let mut args = String::new();
+                if let Some(a) = self.target.args.clone() {
+                    args = a.join(",");
+                }
                 info!(
                     "[{}] execution completed for target: {} ({} μs)",
                     self.name, self.target.path, r.duration
@@ -355,15 +358,15 @@ impl Level {
 #[derive(Debug)]
 struct Target {
     path: String,
-    args: Vec<String>,
-    env: Vec<(String, String)>,
+    args: Option<Vec<String>>,
+    env: Option<Vec<(String, String)>>,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct TargetArgs {
     pub path: String,
-    pub args: Vec<String>,
-    pub env: Vec<(String, String)>,
+    pub args: Option<Vec<String>>,
+    pub env: Option<Vec<(String, String)>>,
 }
 
 #[derive(Debug)]
@@ -386,12 +389,20 @@ impl Target {
     /// Run the target, returning duration and other execution details
     #[instrument(level=tracing::Level::DEBUG)]
     fn run(&self) -> Result<TargetOutput, String> {
-        let env = self.env.clone();
+        // let env = self.env.clone();
+        // let args = self.env.clone().unwrap_or()
         let start = Instant::now();
         let mut cmd = Command::new(&self.path);
+        // let output = cmd;
+        if let Some(env) = self.env.clone() {
+            cmd.envs(env);
+        }
+        if let Some(args) = self.args.clone() {
+            cmd.args(args);
+        }
+        // .args(&self.args)
+        // .envs(env)
         let output = cmd
-            .args(&self.args)
-            .envs(env)
             .output()
             .map_err(|e| format!("failed to run target ({0})", e))?;
         let stop = Instant::now();
