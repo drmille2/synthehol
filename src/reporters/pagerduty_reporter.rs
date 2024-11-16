@@ -86,7 +86,10 @@ impl PagerdutyReporter {
             .ok_or("missing Pagerduty endpoint config item")?
             .to_string();
 
-        let mut source = Some("synthehol".to_owned());
+        let hostname = gethostname::gethostname()
+            .into_string()
+            .unwrap_or("".to_owned());
+        let mut source = Some(hostname);
         if config.contains_key("source") {
             source = config["source"].as_str().map(|x| x.to_string());
         }
@@ -136,7 +139,6 @@ impl PagerdutyReporter {
         })
     }
 
-    #[instrument]
     fn format(&self, output: &MonitorResult) -> Result<PagerdutyMsg, String> {
         let summary = self
             .renderer
@@ -162,7 +164,6 @@ impl PagerdutyReporter {
         })
     }
 
-    #[instrument]
     async fn send(&self, content: &PagerdutyMsg) -> Result<PagerdutyResponse, String> {
         let client = reqwest::Client::new();
         let res = client
@@ -172,13 +173,17 @@ impl PagerdutyReporter {
             .send()
             .await
             .map_err(|e| format!("failed to send pagerduty event ({})", e))?;
+        let status = res.status();
         let body = res
             .text()
             .await
             .map_err(|e| format!("failed to read pagerduty response ({})", e))?;
-        // TODO: parse result to catch events where the HTTP request is sent
-        // but we get a status code indicating a failure from pagerduty
-        debug!("pagerduty report sent successfully ({})", body);
+        if status.as_u16() != 202 {
+            return Err(format!(
+                "non-successful pagerduty response received ({})",
+                body
+            ));
+        }
         let v: PagerdutyResponse = serde_json::from_str(&body)
             .map_err(|e| format!("failed to deserialize pagerduty response ({})", e))?;
         Ok(v)
@@ -195,6 +200,7 @@ impl Reporter for PagerdutyReporter {
                 output.event_action = Action::Trigger;
                 match self.send(&output).await {
                     Ok(r) => {
+                        debug!("pagerduty incident reported successfully");
                         self.dedup_key = r.dedup_key;
                     }
                     Err(e) => error!(e),
@@ -211,7 +217,10 @@ impl Reporter for PagerdutyReporter {
             Ok(mut output) => {
                 output.event_action = Action::Resolve;
                 match self.send(&output).await {
-                    Ok(_) => self.dedup_key = None,
+                    Ok(_) => {
+                        debug!("pagerduty incident cleared successfully");
+                        self.dedup_key = None;
+                    }
                     Err(e) => error!(e),
                 }
             }
