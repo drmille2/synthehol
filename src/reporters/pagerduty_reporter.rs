@@ -249,7 +249,5 @@ impl Reporter for PagerdutyReporter {
 const DEF_REPORT_TEMPLATE: &str = "Monitor: {{res.name}} triggered [level: {{res.level_name}}] 
 command: {{ res.target }} 
 args: {{ res.args }} 
-stdout: {{ res.stdout }} 
-stderr: {{ res.stderr }} 
 result: {{ res.status }} 
 duration: {{ res.duration }} μs";
