@@ -1,3 +1,5 @@
+log_level = "debug" # default: info
+
 [[monitor]]
 name = "Example monitor"
 interval = 60
@@ -19,6 +21,7 @@ reporters = ["splunk", "slack"]
 
 [[monitor.level]]
 name = "alert"
+successes_to_clear = 2
 reporters = ["splunk", "slack", "pagerduty"]
 
 [splunk]
@@ -28,7 +31,15 @@ endpoint = "endpoint_url"
 
 [slack]
 webhook_url = "https://hooks.slack.com/services/AaBbCcDd"
+report_template = """*Monitor: {{res.name}} [level: {{res.level_name}}*] 
+*command:* {{ res.target }} 
+*args:* {{ res.args }} 
+*stdout:* {{ res.stdout }} 
+*stderr:* {{ res.stderr }} 
+*result:*{{ res.status }} 
+*duration:* {{ res.duration }} μs"""
+clear_template = "*Monitor: {{res.name}} returned to baseline*"
 
 [pagerduty]
-api_key = "api_key"
 endpoint = "endpoint_url"
+routing_key = "service_integration_key"

@@ -34,20 +34,26 @@ impl SlackReporter {
             .ok_or("missing Slack webhook_url config item")?;
         let webhook_url = String::from(webhook_url);
         let mut report_tmpl = DEF_REPORT_TEMPLATE.to_string();
-        if config.contains_key("template") {
-            report_tmpl = config["template"]
+        if config.contains_key("report_template") {
+            report_tmpl = config["report_template"]
                 .as_str()
-                .ok_or("failed to convert Slack template to string")?
+                .ok_or("failed to convert slack report template to string")?
                 .to_string();
         }
         let clear_tmpl = DEF_CLEAR_TEMPLATE.to_string();
+        if config.contains_key("clear_template") {
+            report_tmpl = config["clear_template"]
+                .as_str()
+                .ok_or("failed to convert slack clear template to string")?
+                .to_string();
+        }
         let mut renderer = upon::Engine::new();
         renderer
             .add_template("report", report_tmpl)
-            .map_err(|e| format!("failed to register slack template ({0})", e))?;
+            .map_err(|e| format!("failed to register slack report template ({0})", e))?;
         renderer
             .add_template("clear", clear_tmpl)
-            .map_err(|e| format!("failed to register slack template ({0})", e))?;
+            .map_err(|e| format!("failed to register slack clear template ({0})", e))?;
         Ok(Self {
             webhook_url,
             renderer,
