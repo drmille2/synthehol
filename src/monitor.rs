@@ -1,3 +1,24 @@
+//! Monitor and related structs used to build and run independent
+//! asynchronous synthetic monitors.
+//!
+//! Each monitor has a hashmap of reporters registered to it
+//! (heap allocated) that are referenced  by-name at each configured
+//! level to determine how the output of each monitor execution
+//! should be reported.
+//!
+//! Monitors also include an ordered colletion (Vec) of Levels that
+//! are used to configure the different reporting behavior and rules
+//! for escalating/clearing based on failures or successes.
+//!
+//! Finally each Monitor is created with a Target that defines what
+//! will be executed and reported on each monitoring cycle.
+//!
+//! Includes structs for creation arguments that implement serde
+//! deserialize for easy parsing from user-provided configuration.
+//!
+//! Also defines the Reporter async trait and MonitorResult struct
+//! that can be used to create new reporter modules.
+//!
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
