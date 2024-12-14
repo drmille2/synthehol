@@ -55,26 +55,28 @@ pub struct MonitorArgs {
     pub target: TargetArgs,
 }
 
-impl Monitor<'_> {
-    pub fn from_args(args: MonitorArgs) -> Self {
+impl MonitorArgs {
+    pub fn build(&self) -> Monitor {
         let mut levels = Vec::new();
-        for l in args.level.into_iter() {
-            levels.push(Level::from_args(l))
+        for l in self.level.iter() {
+            levels.push(l.build())
         }
-        Self {
-            name: args.name,
-            interval: args.interval,
+        Monitor {
+            name: self.name.clone(),
+            interval: self.interval,
             levels,
             reporters: HashMap::new(),
             level_index: 0,
             failure_tally: 0,
             success_tally: 0,
-            target: Target::from_args(args.target),
+            target: self.target.build(),
             running: false,
             db: &db::SynthDb { db: None },
         }
     }
+}
 
+impl Monitor<'_> {
     /// Registers a new reporter to the monitor, referenced in levels by name
     pub fn register_reporter(
         &mut self,
@@ -361,13 +363,13 @@ pub struct LevelArgs {
     reporters: Vec<String>,
 }
 
-impl Level {
-    fn from_args(args: LevelArgs) -> Self {
-        Self {
-            name: args.name,
-            errors_to_escalate: args.errors_to_escalate.unwrap_or(1),
-            successes_to_clear: args.successes_to_clear.unwrap_or(1),
-            reporters: args.reporters,
+impl LevelArgs {
+    fn build(&self) -> Level {
+        Level {
+            name: self.name.clone(),
+            errors_to_escalate: self.errors_to_escalate.unwrap_or(1),
+            successes_to_clear: self.successes_to_clear.unwrap_or(1),
+            reporters: self.reporters.clone(),
         }
     }
 }
@@ -398,15 +400,17 @@ struct TargetOutput {
     status: ExitStatus,
 }
 
-impl Target {
-    fn from_args(args: TargetArgs) -> Self {
-        Self {
-            path: args.path,
-            args: args.args,
-            env: args.env,
+impl TargetArgs {
+    fn build(&self) -> Target {
+        Target {
+            path: self.path.clone(),
+            args: self.args.clone(),
+            env: self.env.clone(),
         }
     }
+}
 
+impl Target {
     /// Run the target, returning duration and other execution details
     #[instrument(level=tracing::Level::DEBUG)]
     fn run(&self) -> Result<TargetOutput, String> {

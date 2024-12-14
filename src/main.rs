@@ -77,7 +77,7 @@ async fn main() {
     let mut mons = Vec::new();
     for m in config.monitor {
         info!("config parsed for monitor: {}", m.name);
-        let mut mon = monitor::Monitor::from_args(m);
+        let mut mon = m.build();
 
         mon.register_db(db);
 
