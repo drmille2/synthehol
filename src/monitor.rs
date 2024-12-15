@@ -58,7 +58,7 @@ pub struct MonitorArgs {
 impl MonitorArgs {
     pub fn build<'a>(self) -> Monitor<'a> {
         let mut levels = Vec::new();
-        for l in self.level.iter() {
+        for l in self.level.into_iter() {
             levels.push(l.build())
         }
         Monitor {
@@ -364,12 +364,12 @@ pub struct LevelArgs {
 }
 
 impl LevelArgs {
-    fn build(&self) -> Level {
+    fn build(self) -> Level {
         Level {
-            name: self.name.clone(),
+            name: self.name,
             errors_to_escalate: self.errors_to_escalate.unwrap_or(1),
             successes_to_clear: self.successes_to_clear.unwrap_or(1),
-            reporters: self.reporters.clone(),
+            reporters: self.reporters,
         }
     }
 }
@@ -401,11 +401,11 @@ struct TargetOutput {
 }
 
 impl TargetArgs {
-    fn build(&self) -> Target {
+    fn build(self) -> Target {
         Target {
-            path: self.path.clone(),
-            args: self.args.clone(),
-            env: self.env.clone(),
+            path: self.path,
+            args: self.args,
+            env: self.env,
         }
     }
 }
