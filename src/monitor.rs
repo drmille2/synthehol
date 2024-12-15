@@ -56,7 +56,7 @@ pub struct MonitorArgs {
 }
 
 impl MonitorArgs {
-    pub fn build(&self) -> Monitor {
+    pub fn build<'a>(self) -> Monitor<'a> {
         let mut levels = Vec::new();
         for l in self.level.iter() {
             levels.push(l.build())

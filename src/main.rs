@@ -24,7 +24,6 @@ use tokio_util::task::TaskTracker;
     version = "v0.1.0",
     about = "Synthehol (easily replicable synthetic monitoring)"
 )]
-
 struct Cli {
     #[clap(short, long)]
     config: String,
