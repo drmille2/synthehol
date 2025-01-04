@@ -11,7 +11,7 @@ use std::str::FromStr;
 
 use clap::Parser;
 use serde::Deserialize;
-use tokio::signal;
+use tokio::signal::unix::{signal, SignalKind};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing::Level;
@@ -115,13 +115,17 @@ async fn main() {
         let cancel = token.clone();
         tracker.spawn(async move { m.start(cancel).await });
     }
-    match signal::ctrl_c().await {
-        Ok(()) => {
+    let mut sigint = signal(SignalKind::interrupt()).expect("error handling interrupt signal");
+    let mut sigterm = signal(SignalKind::interrupt()).expect("error handling terminate signal");
+
+    tokio::select! {
+        _ = sigint.recv() => {
             info!("Interrupt received, shutting down...");
             token.cancel()
-        }
-        Err(err) => {
-            eprintln!("Unable to listen for shutdown signal: {}", err);
+            },
+        _ = sigterm.recv() => {
+            info!("Terminate received, shutting down...");
+            token.cancel()
         }
     }
     tracker.close();
