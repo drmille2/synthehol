@@ -53,6 +53,7 @@ pub struct MonitorArgs {
     pub interval: u64,
     pub level: Vec<LevelArgs>,
     pub target: TargetArgs,
+    pub reporter_args: Option<ReporterArgs>,
 }
 
 impl MonitorArgs {
