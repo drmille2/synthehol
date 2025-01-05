@@ -145,7 +145,7 @@ impl PagerdutyReporter {
             .template("report")
             .render(upon::value![res: output])
             .to_string()
-            .map_err(|e| format!("error rendering pagerduty template {0}", e))?;
+            .map_err(|e| format!("error rendering pagerduty template {e}"))?;
         let payload = Some(PagerdutyPayload {
             summary,
             timestamp: None,
