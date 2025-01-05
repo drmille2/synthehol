@@ -194,8 +194,7 @@ impl SynthDb {
                         .query_map([rep, mon], |row| {
                             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
                         })?
-                        .collect::<std::result::Result<Vec<ReporterState>, rusqlite::Error>>()
-                        .unwrap();
+                        .collect::<std::result::Result<Vec<ReporterState>, rusqlite::Error>>()?;
                     Ok(state)
                 })
                 .await?;
