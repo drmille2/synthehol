@@ -43,7 +43,6 @@ pub struct Monitor<'a> {
     success_tally: u64,
     target: Target,
     running: bool,
-    // db: Option<&'a tokio_rusqlite::Connection>,
     db: &'a db::SynthDb,
 }
 
@@ -53,7 +52,6 @@ pub struct MonitorArgs {
     pub interval: u64,
     pub level: Vec<LevelArgs>,
     pub target: TargetArgs,
-    pub reporter_args: Option<ReporterArgs>,
 }
 
 impl MonitorArgs {
@@ -415,19 +413,14 @@ impl Target {
     /// Run the target, returning duration and other execution details
     #[instrument(level=tracing::Level::DEBUG)]
     fn run(&self) -> Result<TargetOutput, String> {
-        // let env = self.env.clone();
-        // let args = self.env.clone().unwrap_or()
         let start = Instant::now();
         let mut cmd = Command::new(&self.path);
-        // let output = cmd;
         if let Some(env) = self.env.clone() {
             cmd.envs(env);
         }
         if let Some(args) = self.args.clone() {
             cmd.args(args);
         }
-        // .args(&self.args)
-        // .envs(env)
         let output = cmd
             .output()
             .map_err(|e| format!("failed to run target ({0})", e))?;
@@ -443,7 +436,6 @@ impl Target {
             duration,
             status,
         };
-        // dbg!(&out);
         Ok(out)
     }
 }
@@ -472,5 +464,4 @@ pub struct MonitorResult {
     pub stderr: String,
     pub duration: u64,
     pub status: i32,
-    // pub tags: Option<Vec<(String, String)>>,
 }
