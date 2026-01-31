@@ -3,6 +3,7 @@ mod monitor;
 mod reporters;
 
 use crate::reporters::pagerduty_reporter::PagerdutyReporter;
+use crate::reporters::postgresql::PostgresqlReporter;
 use crate::reporters::slack_reporter::SlackReporter;
 use crate::reporters::splunk_reporter::SplunkReporter;
 
@@ -37,6 +38,7 @@ struct Config {
     splunk: Option<monitor::ReporterArgs>,
     slack: Option<monitor::ReporterArgs>,
     pagerduty: Option<monitor::ReporterArgs>,
+    postgresql: Option<monitor::ReporterArgs>,
 }
 
 fn parse_config(path: String) -> Config {
@@ -85,6 +87,7 @@ async fn main() {
             let slack =
                 Box::new(SlackReporter::from_toml(r).expect("failed to initialize slack reporter"));
             mon.register_reporter("slack", slack);
+            info!("slack reporter registered");
         }
 
         // initialize and register splunk reporter if configured, panics on failure
@@ -93,6 +96,7 @@ async fn main() {
                 SplunkReporter::from_toml(r).expect("failed to initialize splunk reporter"),
             );
             mon.register_reporter("splunk", splunk);
+            info!("splunk reporter registered");
         }
 
         // initialize and register pagerduty reporter if configured, panics on failure
@@ -101,6 +105,18 @@ async fn main() {
                 PagerdutyReporter::from_toml(r).expect("failed to initialize pagerduty reporter"),
             );
             mon.register_reporter("pagerduty", pagerduty);
+            info!("pagerduty reporter registered");
+        }
+
+        // initialize and register postgresql reporter if configured, panics on failure
+        if let Some(r) = &config.postgresql {
+            let postgresql = Box::new(
+                PostgresqlReporter::from_toml(r)
+                    .await
+                    .expect("failed to initialize pagerduty reporter"),
+            );
+            mon.register_reporter("postgresql", postgresql);
+            info!("postgresql reporter registered");
         }
 
         mons.push(mon);
