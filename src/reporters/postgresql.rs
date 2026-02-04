@@ -12,6 +12,7 @@ pub struct PostgresqlReporter {
     user: String,
     password: String,
     db: String,
+    conn_count: u32,
     pg_db: PgDb,
 }
 
@@ -34,7 +35,7 @@ impl PostgresqlReporter {
             .as_integer()
             .ok_or("invalid Postgres port config value")?
             .try_into()
-            .expect("invalid port specified");
+            .expect("invalid Postgres port config value");
         let user = config
             .get("user")
             .ok_or("missing Postgresql user config item")?
@@ -53,12 +54,20 @@ impl PostgresqlReporter {
             .as_str()
             .ok_or("invalid Postgresql db config value")?
             .to_string();
+        let conn_count = config
+            .get("conn_count")
+            .ok_or("missing Postgres conn_count config item")?
+            .as_integer()
+            .ok_or("invalid Postgres conn_count config value")?
+            .try_into()
+            .expect("invalid Postgresql conn_count value");
         let mut r = Self {
             host,
             port,
             user,
             password,
             db,
+            conn_count,
             pg_db: PgDb { pool: None },
         };
         _ = r.initialize_db().await;
@@ -73,7 +82,7 @@ impl PostgresqlReporter {
             self.user, self.password, self.host, self.port, self.db
         );
         let pool = PgPoolOptions::new()
-            .max_connections(5)
+            .max_connections(self.conn_count)
             .connect(&connection_string)
             .await?;
 
