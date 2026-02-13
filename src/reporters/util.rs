@@ -19,6 +19,12 @@ impl From<&str> for ConfigError {
     }
 }
 
+impl From<std::string::String> for ConfigError {
+    fn from(value: String) -> Self {
+        ConfigError { message: value }
+    }
+}
+
 impl From<std::num::TryFromIntError> for ConfigError {
     fn from(value: std::num::TryFromIntError) -> Self {
         ConfigError {
