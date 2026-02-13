@@ -1,5 +1,5 @@
-use crate::monitor::{MonitorResult, Reporter};
-use crate::reporters::util;
+use crate::monitor::MonitorResult;
+use crate::reporters::{util, Reporter};
 use async_trait::async_trait;
 use serde::Serialize;
 use tracing::debug;

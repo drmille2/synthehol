@@ -1,11 +1,13 @@
 mod db;
 mod monitor;
 mod reporters;
+mod target;
 
 use crate::reporters::pagerduty::PagerdutyReporter;
 use crate::reporters::postgresql::PostgresqlReporter;
 use crate::reporters::slack::SlackReporter;
 use crate::reporters::splunk::SplunkReporter;
+use crate::reporters::ReporterArgs;
 
 use std::fs;
 use std::str::FromStr;
@@ -35,10 +37,10 @@ struct Config {
     log_level: Option<String>,
     use_db_persistence: Option<bool>,
     monitor: Vec<monitor::MonitorArgs>,
-    splunk: Option<monitor::ReporterArgs>,
-    slack: Option<monitor::ReporterArgs>,
-    pagerduty: Option<monitor::ReporterArgs>,
-    postgresql: Option<monitor::ReporterArgs>,
+    splunk: Option<ReporterArgs>,
+    slack: Option<ReporterArgs>,
+    pagerduty: Option<ReporterArgs>,
+    postgresql: Option<ReporterArgs>,
 }
 
 fn parse_config(path: String) -> Config {

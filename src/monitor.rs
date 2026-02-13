@@ -19,17 +19,16 @@
 //! Also defines the Reporter async trait and MonitorResult struct
 //! that can be used to create new reporter modules.
 //!
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::process::{Command, ExitStatus};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
-use tracing::instrument;
 use tracing::{debug, error, info};
 
 use crate::db;
+use crate::reporters::Reporter;
+use crate::target::{Target, TargetArgs};
 
 /// Represents a monitor that executes a target and reports the result
 /// based on the current level
@@ -371,85 +370,6 @@ impl LevelArgs {
             reporters: self.reporters,
         }
     }
-}
-
-/// A monitor execution target, such as a script or binary that produces
-/// some output and a 0 result code indicating success, and >0 for failure.
-/// Command-line arguments are provided by a vec of strings, and environment
-/// variables by a vec of (String, String) tuples
-#[derive(Debug)]
-struct Target {
-    path: String,
-    args: Option<Vec<String>>,
-    env: Option<Vec<(String, String)>>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct TargetArgs {
-    pub path: String,
-    pub args: Option<Vec<String>>,
-    pub env: Option<Vec<(String, String)>>,
-}
-
-#[derive(Debug)]
-struct TargetOutput {
-    stdout: String,
-    stderr: String,
-    duration: u64,
-    status: ExitStatus,
-}
-
-impl TargetArgs {
-    fn build(self) -> Target {
-        Target {
-            path: self.path,
-            args: self.args,
-            env: self.env,
-        }
-    }
-}
-
-impl Target {
-    /// Run the target, returning duration and other execution details
-    #[instrument(level=tracing::Level::DEBUG)]
-    fn run(&self) -> Result<TargetOutput, String> {
-        let start = Instant::now();
-        let mut cmd = Command::new(&self.path);
-        if let Some(env) = self.env.clone() {
-            cmd.envs(env);
-        }
-        if let Some(args) = self.args.clone() {
-            cmd.args(args);
-        }
-        let output = cmd
-            .output()
-            .map_err(|e| format!("failed to run target ({0})", e))?;
-        let stop = Instant::now();
-        let duration = (stop - start).as_micros() as u64;
-        let status = output.status;
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-        let out = TargetOutput {
-            stdout,
-            stderr,
-            duration,
-            status,
-        };
-        Ok(out)
-    }
-}
-
-pub type ReporterArgs = toml::Table;
-
-/// Reporters have an async report() function that handles a monitor result
-/// taking care of any formatting and delivery required
-#[async_trait]
-pub trait Reporter {
-    async fn report(&mut self, _: &MonitorResult);
-    async fn clear(&mut self, _: &MonitorResult);
-    fn get_state(&self) -> Option<Vec<u8>>;
-    fn load_state(&mut self, _: Vec<u8>);
 }
 
 /// Result returned from a single execution of a monitor target

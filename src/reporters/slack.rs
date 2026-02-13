@@ -1,6 +1,6 @@
 use crate::{
-    monitor::{MonitorResult, Reporter},
-    reporters::util,
+    monitor::MonitorResult,
+    reporters::{util, Reporter},
 };
 use async_trait::async_trait;
 use serde::Serialize;
