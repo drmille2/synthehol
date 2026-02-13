@@ -2,7 +2,7 @@ mod db;
 mod monitor;
 mod reporters;
 
-use crate::reporters::pagerduty_reporter::PagerdutyReporter;
+use crate::reporters::pagerduty::PagerdutyReporter;
 use crate::reporters::postgresql::PostgresqlReporter;
 use crate::reporters::slack_reporter::SlackReporter;
 use crate::reporters::splunk_reporter::SplunkReporter;

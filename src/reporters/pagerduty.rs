@@ -1,4 +1,5 @@
 use crate::monitor::{MonitorResult, Reporter};
+use crate::reporters::util;
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde::Serialize;
@@ -68,63 +69,27 @@ struct PagerdutyMsg {
 
 #[derive(Deserialize, Debug)]
 struct PagerdutyResponse {
-    // status: String,
     dedup_key: Option<String>,
-    // message: Option<String>,
 }
 
 impl PagerdutyReporter {
-    pub fn from_toml(config: &toml::Table) -> Result<Self, String> {
-        // TODO: this whole section is so ugly
+    pub fn from_toml(config: &toml::Table) -> Result<Self, util::ConfigError> {
+        let routing_key = util::get_str_or_else(config, "routing_key", None)?;
+        let endpoint = util::get_str_or_else(config, "endpoint", None)?;
+        let group = util::get_str_or_else(config, "group", None).ok();
+        let class = util::get_str_or_else(config, "class", None).ok();
+        let component = util::get_str_or_else(config, "component", None).ok();
+        let client = util::get_str_or_else(config, "client", None).ok();
 
-        let routing_key = config["routing_key"]
-            .as_str()
-            .ok_or("missing Pagerduty routing_key config item")?
-            .to_string();
-        let endpoint = config["endpoint"]
-            .as_str()
-            .ok_or("missing Pagerduty endpoint config item")?
-            .to_string();
+        let hostname = gethostname::gethostname().into_string().ok();
+        let source = util::get_str_or_else(config, "source", hostname.as_deref()).ok();
 
-        let hostname = gethostname::gethostname()
-            .into_string()
-            .unwrap_or("".to_owned());
-        let mut source = Some(hostname);
-        if config.contains_key("source") {
-            source = config["source"].as_str().map(|x| x.to_string());
-        }
+        let report_tmpl = util::get_str_or_else(config, "template", Some(DEF_REPORT_TEMPLATE))?;
 
-        let mut component = None;
-        if config.contains_key("component") {
-            component = config["component"].as_str().map(|x| x.to_string());
-        }
-
-        let mut group = None;
-        if config.contains_key("group") {
-            group = config["group"].as_str().map(|x| x.to_string());
-        }
-
-        let mut class = None;
-        if config.contains_key("class") {
-            class = config["class"].as_str().map(|x| x.to_string());
-        }
-
-        let mut client = Some("synthehol".to_owned());
-        if config.contains_key("client") {
-            client = config["client"].as_str().map(|x| x.to_string());
-        }
-
-        let mut report_tmpl = DEF_REPORT_TEMPLATE.to_string();
-        if config.contains_key("template") {
-            report_tmpl = config["template"]
-                .as_str()
-                .ok_or("failed to convert Pagerduty template to string")?
-                .to_string();
-        }
         let mut renderer = upon::Engine::new();
-        renderer
-            .add_template("report", report_tmpl)
-            .map_err(|e| format!("failed to register pagerduty template ({0})", e))?;
+        renderer.add_template("report", report_tmpl).map_err(|e| {
+            util::ConfigError::from(format!("failed to register pagerduty template ({0})", e))
+        })?;
 
         Ok(Self {
             renderer,
