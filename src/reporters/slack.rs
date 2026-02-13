@@ -1,4 +1,7 @@
-use crate::monitor::{MonitorResult, Reporter};
+use crate::{
+    monitor::{MonitorResult, Reporter},
+    reporters::util,
+};
 use async_trait::async_trait;
 use serde::Serialize;
 use tracing::{debug, instrument, warn};
@@ -27,26 +30,12 @@ struct SlackSectionBlock {
 }
 
 impl SlackReporter {
-    pub fn from_toml(config: &toml::Table) -> Result<Self, String> {
-        let webhook_url = config["webhook_url"]
-            .as_str()
-            // this maps option to our expected result so we can ?
-            .ok_or("missing Slack webhook_url config item")?;
-        let webhook_url = String::from(webhook_url);
-        let mut report_tmpl = DEF_REPORT_TEMPLATE.to_string();
-        if config.contains_key("report_template") {
-            report_tmpl = config["report_template"]
-                .as_str()
-                .ok_or("failed to convert slack report template to string")?
-                .to_string();
-        }
-        let clear_tmpl = DEF_CLEAR_TEMPLATE.to_string();
-        if config.contains_key("clear_template") {
-            report_tmpl = config["clear_template"]
-                .as_str()
-                .ok_or("failed to convert slack clear template to string")?
-                .to_string();
-        }
+    pub fn from_toml(config: &toml::Table) -> Result<Self, util::ConfigError> {
+        let webhook_url = util::get_str_or_else(config, "webhook_url", None)?;
+        let report_tmpl =
+            util::get_str_or_else(config, "report_template", Some(DEF_REPORT_TEMPLATE))?;
+        let clear_tmpl = util::get_str_or_else(config, "clear_template", Some(DEF_CLEAR_TEMPLATE))?;
+
         let mut renderer = upon::Engine::new();
         renderer
             .add_template("report", report_tmpl)
