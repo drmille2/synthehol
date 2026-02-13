@@ -1,4 +1,5 @@
 use crate::monitor::{MonitorResult, Reporter};
+use crate::reporters::util;
 use async_trait::async_trait;
 use serde::Serialize;
 use tracing::debug;
@@ -33,19 +34,11 @@ struct SplunkEvent {
 }
 
 impl SplunkReporter {
-    pub fn from_toml(config: &toml::Table) -> Result<Self, String> {
-        let endpoint = config["endpoint"]
-            .as_str()
-            .ok_or("missing Splunk endpoint config item")?
-            .to_string();
-        let index = config["index"]
-            .as_str()
-            .ok_or("missing Splunk index config item")?
-            .to_string();
-        let hec_token = config["hec_token"]
-            .as_str()
-            .ok_or("missing Splunk hec_token config item")?
-            .to_string();
+    pub fn from_toml(config: &toml::Table) -> Result<Self, util::ConfigError> {
+        let endpoint = util::get_str_or_else(config, "endpoint", None)?;
+        let index = util::get_str_or_else(config, "index", None)?;
+        let hec_token = util::get_str_or_else(config, "hec_token", None)?;
+
         Ok(Self {
             endpoint,
             index,

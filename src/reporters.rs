@@ -1,5 +1,5 @@
 pub mod pagerduty;
 pub mod postgresql;
 pub mod slack;
-pub mod splunk_reporter;
+pub mod splunk;
 mod util;
