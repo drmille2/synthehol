@@ -1,4 +1,5 @@
 use crate::monitor::{MonitorResult, Reporter};
+use crate::reporters::util;
 use async_trait::async_trait;
 use sqlx::postgres::PgPoolOptions;
 use tracing::debug;
@@ -22,45 +23,14 @@ struct PgDb {
 }
 
 impl PostgresqlReporter {
-    pub async fn from_toml(config: &toml::Table) -> Result<Self, String> {
-        let host = config
-            .get("host")
-            .ok_or("missing Postgresql host config item")?
-            .as_str()
-            .ok_or("invalid Postgres host config value")?
-            .to_string();
-        let port = config
-            .get("port")
-            .ok_or("missing Postgres port config item")?
-            .as_integer()
-            .ok_or("invalid Postgres port config value")?
-            .try_into()
-            .expect("invalid Postgres port config value");
-        let user = config
-            .get("user")
-            .ok_or("missing Postgresql user config item")?
-            .as_str()
-            .ok_or("invalid Postgresql user config value")?
-            .to_string();
-        let password = config
-            .get("password")
-            .ok_or("missing Postgresql password config item")?
-            .as_str()
-            .ok_or("invalid Postgresql password config value")?
-            .to_string();
-        let db = config
-            .get("db")
-            .ok_or("missing Postgresql db config item")?
-            .as_str()
-            .ok_or("invalid Postgresql db config value")?
-            .to_string();
-        let conn_count = config
-            .get("conn_count")
-            .ok_or("missing Postgres conn_count config item")?
-            .as_integer()
-            .ok_or("invalid Postgres conn_count config value")?
-            .try_into()
-            .expect("invalid Postgresql conn_count value");
+    pub async fn from_toml(config: &toml::Table) -> Result<Self, util::ConfigError> {
+        let host = util::get_str_or_else(config, "host", None)?;
+        let port = util::get_int_or_else(config, "port", Some(5432))?.try_into()?;
+        let user = util::get_str_or_else(config, "user", None)?;
+        let password = util::get_str_or_else(config, "password", None)?;
+        let db = util::get_str_or_else(config, "db", None)?;
+        let conn_count = util::get_int_or_else(config, "conn_count", Some(5))?.try_into()?;
+
         let mut r = Self {
             host,
             port,
