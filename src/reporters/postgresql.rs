@@ -155,15 +155,15 @@ impl Reporter for PostgresqlReporter {
     }
 
     async fn clear(&mut self, _: &MonitorResult) {
-        // TODO
+        // nothing to do here
     }
 
     fn get_state(&self) -> Option<Vec<u8>> {
-        // TODO
+        // nothing to do here
         None
     }
 
     fn load_state(&mut self, _: Vec<u8>) {
-        // TODO
+        // nothing to do here
     }
 }
