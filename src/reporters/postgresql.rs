@@ -1,6 +1,7 @@
 use crate::monitor::MonitorResult;
-use crate::reporters::{util, Reporter};
+use crate::reporters::Reporter;
 use async_trait::async_trait;
+use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
 use tracing::debug;
 use tracing::error;
@@ -9,7 +10,7 @@ use tracing::instrument;
 #[derive(Debug)]
 pub struct PostgresqlReporter {
     host: String,
-    port: i16,
+    port: u16,
     user: String,
     password: String,
     db: String,
@@ -17,33 +18,38 @@ pub struct PostgresqlReporter {
     pg_db: PgDb,
 }
 
+#[derive(Clone, Deserialize, Debug)]
+pub struct PostgresqlReporterArgs {
+    host: String,
+    port: Option<u16>,
+    user: String,
+    password: String,
+    db: String,
+    conn_count: Option<u32>,
+}
+
 #[derive(Debug)]
 struct PgDb {
     pool: Option<sqlx::Pool<sqlx::Postgres>>,
 }
 
-impl PostgresqlReporter {
-    pub async fn from_toml(config: &toml::Table) -> Result<Self, util::ConfigError> {
-        let host = util::get_str_or_else(config, "host", None)?;
-        let port = util::get_int_or_else(config, "port", Some(5432))?.try_into()?;
-        let user = util::get_str_or_else(config, "user", None)?;
-        let password = util::get_str_or_else(config, "password", None)?;
-        let db = util::get_str_or_else(config, "db", None)?;
-        let conn_count = util::get_int_or_else(config, "conn_count", Some(5))?.try_into()?;
-
-        let mut r = Self {
-            host,
-            port,
-            user,
-            password,
-            db,
-            conn_count,
+impl PostgresqlReporterArgs {
+    pub async fn build(self) -> Result<PostgresqlReporter, sqlx::Error> {
+        let mut r = PostgresqlReporter {
+            host: self.host,
+            port: self.port.unwrap_or(5432),
+            user: self.user,
+            password: self.password,
+            db: self.db,
+            conn_count: self.conn_count.unwrap_or(5),
             pg_db: PgDb { pool: None },
         };
-        _ = r.initialize_db().await;
+        r.initialize_db().await?;
         Ok(r)
     }
+}
 
+impl PostgresqlReporter {
     #[instrument]
     async fn initialize_db(&mut self) -> Result<(), sqlx::Error> {
         // Connect to the database.

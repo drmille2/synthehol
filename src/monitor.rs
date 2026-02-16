@@ -45,7 +45,7 @@ pub struct Monitor<'a> {
     db: &'a db::SynthDb,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Clone, Deserialize, Debug)]
 pub struct MonitorArgs {
     pub name: String,
     pub interval: u64,
@@ -353,7 +353,7 @@ struct Level {
     reporters: Vec<String>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Clone, Deserialize, Debug)]
 pub struct LevelArgs {
     name: String,
     errors_to_escalate: Option<u64>,

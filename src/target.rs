@@ -14,7 +14,7 @@ pub struct Target {
     pub env: Option<Vec<(String, String)>>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Clone, Deserialize, Debug)]
 pub struct TargetArgs {
     pub path: String,
     pub args: Option<Vec<String>>,

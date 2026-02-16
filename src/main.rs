@@ -1,19 +1,14 @@
+mod config;
 mod db;
 mod monitor;
 mod reporters;
 mod target;
 
-use crate::reporters::pagerduty::PagerdutyReporter;
-use crate::reporters::postgresql::PostgresqlReporter;
-use crate::reporters::slack::SlackReporter;
-use crate::reporters::splunk::SplunkReporter;
-use crate::reporters::ReporterArgs;
+use crate::config::parse_config;
 
-use std::fs;
 use std::str::FromStr;
 
 use clap::Parser;
-use serde::Deserialize;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
@@ -24,7 +19,7 @@ use tokio_util::task::TaskTracker;
 #[derive(Parser, Debug)]
 #[command(
     author = "David Miller",
-    version = "v0.1.0",
+    version = "v0.2.0",
     about = "Synthehol (easily replicable synthetic monitoring)"
 )]
 struct Cli {
@@ -32,26 +27,11 @@ struct Cli {
     config: String,
 }
 
-#[derive(Deserialize, Debug)]
-struct Config {
-    log_level: Option<String>,
-    use_db_persistence: Option<bool>,
-    monitor: Vec<monitor::MonitorArgs>,
-    splunk: Option<ReporterArgs>,
-    slack: Option<ReporterArgs>,
-    pagerduty: Option<ReporterArgs>,
-    postgresql: Option<ReporterArgs>,
-}
-
-fn parse_config(path: String) -> Config {
-    let input = &fs::read_to_string(path).expect("failed to read configuration file");
-    toml::from_str(input).expect("failed to parse configuration file")
-}
-
 #[tokio::main]
 async fn main() {
     let cli_args = Cli::parse();
-    let config = parse_config(cli_args.config);
+    let config =
+        parse_config(&cli_args.config).expect("failed to parse provided configuration path");
 
     let lev = Level::from_str(&config.log_level.unwrap_or(String::from("info")))
         .expect("invalid log level");
@@ -86,26 +66,29 @@ async fn main() {
 
         // initialize and register slack reporter if configured, panics on failure
         if let Some(r) = &config.slack {
-            let slack =
-                Box::new(SlackReporter::from_toml(r).expect("failed to initialize slack reporter"));
+            let slack = r.clone().build();
+            if let Err(e) = slack {
+                panic!("slack reported failed to initilize ({})", e)
+            }
+            let slack = Box::new(slack.unwrap());
             mon.register_reporter("slack", slack);
             info!("slack reporter registered");
         }
 
         // initialize and register splunk reporter if configured, panics on failure
         if let Some(r) = &config.splunk {
-            let splunk = Box::new(
-                SplunkReporter::from_toml(r).expect("failed to initialize splunk reporter"),
-            );
+            let splunk = Box::new(r.clone().build());
             mon.register_reporter("splunk", splunk);
             info!("splunk reporter registered");
         }
 
         // initialize and register pagerduty reporter if configured, panics on failure
         if let Some(r) = &config.pagerduty {
-            let pagerduty = Box::new(
-                PagerdutyReporter::from_toml(r).expect("failed to initialize pagerduty reporter"),
-            );
+            let pagerduty = r.clone().build();
+            if let Err(e) = pagerduty {
+                panic!("pagerduty reported failed to initilize ({})", e)
+            }
+            let pagerduty = Box::new(pagerduty.unwrap());
             mon.register_reporter("pagerduty", pagerduty);
             info!("pagerduty reporter registered");
         }
@@ -113,9 +96,10 @@ async fn main() {
         // initialize and register postgresql reporter if configured, panics on failure
         if let Some(r) = &config.postgresql {
             let postgresql = Box::new(
-                PostgresqlReporter::from_toml(r)
+                r.clone()
+                    .build()
                     .await
-                    .expect("failed to initialize pagerduty reporter"),
+                    .expect("failed to initialize postgresql reporter"),
             );
             mon.register_reporter("postgresql", postgresql);
             info!("postgresql reporter registered");

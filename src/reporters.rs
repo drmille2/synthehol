@@ -2,13 +2,10 @@ pub mod pagerduty;
 pub mod postgresql;
 pub mod slack;
 pub mod splunk;
-mod util;
 
 use async_trait::async_trait;
 
 use crate::monitor::MonitorResult;
-
-pub type ReporterArgs = toml::Table;
 
 /// Reporters have an async report() function that handles a monitor result
 /// taking care of any formatting and delivery required

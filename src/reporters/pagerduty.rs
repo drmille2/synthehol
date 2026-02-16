@@ -1,5 +1,5 @@
 use crate::monitor::MonitorResult;
-use crate::reporters::{util, Reporter};
+use crate::reporters::Reporter;
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde::Serialize;
@@ -20,6 +20,19 @@ pub struct PagerdutyReporter {
     client: Option<String>,
     group: Option<String>,
     class: Option<String>,
+    report_tmpl: String,
+}
+
+#[derive(Clone, Deserialize, Debug)]
+pub struct PagerdutyReporterArgs {
+    routing_key: String,
+    endpoint: String,
+    group: Option<String>,
+    class: Option<String>,
+    component: Option<String>,
+    client: Option<String>,
+    source: Option<String>,
+    report_tmpl: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -72,36 +85,29 @@ struct PagerdutyResponse {
     dedup_key: Option<String>,
 }
 
-impl PagerdutyReporter {
-    pub fn from_toml(config: &toml::Table) -> Result<Self, util::ConfigError> {
-        let routing_key = util::get_str_or_else(config, "routing_key", None)?;
-        let endpoint = util::get_str_or_else(config, "endpoint", None)?;
-        let group = util::get_str_or_else(config, "group", None).ok();
-        let class = util::get_str_or_else(config, "class", None).ok();
-        let component = util::get_str_or_else(config, "component", None).ok();
-        let client = util::get_str_or_else(config, "client", None).ok();
-
-        let hostname = gethostname::gethostname().into_string().ok();
-        let source = util::get_str_or_else(config, "source", hostname.as_deref()).ok();
-
-        let report_tmpl = util::get_str_or_else(config, "template", Some(DEF_REPORT_TEMPLATE))?;
-
-        let mut renderer = upon::Engine::new();
-        renderer.add_template("report", report_tmpl).map_err(|e| {
-            util::ConfigError::from(format!("failed to register pagerduty template ({0})", e))
-        })?;
-
-        Ok(Self {
-            renderer,
-            endpoint,
-            routing_key,
+impl PagerdutyReporterArgs {
+    pub fn build(self) -> Result<PagerdutyReporter, upon::Error> {
+        let mut r = PagerdutyReporter {
+            renderer: upon::Engine::new(),
+            endpoint: self.endpoint,
+            routing_key: self.routing_key,
             dedup_key: None,
-            source,
-            client,
-            component,
-            group,
-            class,
-        })
+            source: self.source,
+            component: self.component,
+            client: self.client,
+            group: self.group,
+            class: self.class,
+            report_tmpl: self.report_tmpl.unwrap_or(DEF_REPORT_TEMPLATE.to_owned()),
+        };
+        r.initialize()?;
+        Ok(r)
+    }
+}
+
+impl PagerdutyReporter {
+    fn initialize(&mut self) -> Result<(), upon::Error> {
+        self.renderer
+            .add_template("report", self.report_tmpl.clone())
     }
 
     fn format(&self, output: &MonitorResult) -> Result<PagerdutyMsg, String> {
