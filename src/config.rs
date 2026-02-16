@@ -12,7 +12,7 @@ use crate::reporters::splunk::SplunkReporterArgs;
 pub struct Config {
     pub log_level: Option<String>,
     pub use_db_persistence: Option<bool>,
-    pub monitor: Vec<MonitorArgs>,
+    pub monitor: Option<Vec<MonitorArgs>>,
     pub splunk: Option<SplunkReporterArgs>,
     pub slack: Option<SlackReporterArgs>,
     pub pagerduty: Option<PagerdutyReporterArgs>,
@@ -24,7 +24,7 @@ impl Config {
         Config {
             log_level: None,
             use_db_persistence: None,
-            monitor: Vec::new(),
+            monitor: Some(Vec::new()),
             splunk: None,
             slack: None,
             pagerduty: None,
@@ -35,33 +35,49 @@ impl Config {
         // could probably make this a lot cleaner with a macro
         // check each top-level config stanza, if set in other,
         // bring it in, otherwise do nothing
+
         if let Some(v) = other.log_level.clone() {
+            // dbg!("setting log_level config overlay");
             self.log_level = Some(v)
         }
         if let Some(v) = other.use_db_persistence {
+            // dbg!("setting use_db_persistence config overlay");
             self.use_db_persistence = Some(v)
         }
         if let Some(v) = other.splunk.clone() {
+            // dbg!("setting splunk reporter config overlay");
             self.splunk = Some(v)
         }
         if let Some(v) = other.slack.clone() {
+            // dbg!("setting slack reporter config overlay");
             self.slack = Some(v)
         }
         if let Some(v) = other.pagerduty.clone() {
+            // dbg!("setting pagerduty reporter config overlay");
             self.pagerduty = Some(v)
         }
         if let Some(v) = other.postgresql.clone() {
+            // dbg!("setting postgresql reporter config overlay");
             self.postgresql = Some(v)
         }
         // for monitors, we need to merge the Vecs based
         // on monitor name
-        other.monitor.clone().into_iter().for_each(|m| {
-            let pos = self.monitor.iter().position(|x| x.name == m.name);
-            if let Some(pos) = pos {
-                self.monitor.remove(pos);
-                self.monitor.push(m);
+
+        if let Some(om) = other.monitor.clone() {
+            let mut sm = Vec::new();
+            if let Some(m) = self.monitor.clone() {
+                sm = m;
             }
-        })
+            om.into_iter().for_each(|m| {
+                // dbg!("setting monitor {} config overlay", &m.name);
+                let pos = sm.iter().position(|x| x.name == m.name);
+                if let Some(pos) = pos {
+                    sm.remove(pos);
+                }
+                sm.push(m);
+            });
+            self.monitor = Some(sm);
+        }
     }
 }
 
@@ -75,7 +91,7 @@ pub fn parse_config(p: &str) -> Result<Config, ConfigError> {
     let mut config = Config::new();
     let path = Path::new(p);
     if path.is_dir() {
-        print!("loading config directory {}", p);
+        println!("loading config directory {}", p);
         let mut count = 0;
         let mut co: Vec<Option<Config>> = Vec::new();
         let d = fs::read_dir(path).expect("unable to read config directory");
@@ -84,7 +100,7 @@ pub fn parse_config(p: &str) -> Result<Config, ConfigError> {
                 let input = &fs::read_to_string(r.path());
                 match input {
                     Ok(v) => co.push(toml::from_str(v).ok()),
-                    Err(_) => tracing::debug!("failed to parse file as toml"),
+                    Err(e) => println!("failed to parse file as toml ({})", e),
                 }
             }
             count += 1;
@@ -95,7 +111,7 @@ pub fn parse_config(p: &str) -> Result<Config, ConfigError> {
             }
         })
     } else if path.is_file() {
-        print!("loading config file {}", p);
+        println!("loading config file {}", p);
         let input = &fs::read_to_string(path)?;
         config = toml::from_str(input)?;
     } else {
@@ -132,28 +148,3 @@ impl From<toml::de::Error> for ConfigError {
         ConfigError::Toml(value)
     }
 }
-
-// impl From<&str> for ConfigError {
-//     fn from(value: &str) -> Self {
-//         ConfigError {
-//             message: value.to_string(),
-//         }
-//     }
-// }
-
-// impl From<std::string::String> for ConfigError {
-//     fn from(value: String) -> Self {
-//         ConfigError { message: value }
-//     }
-// }
-
-// impl From<std::num::TryFromIntError> for ConfigError {
-//     fn from(value: std::num::TryFromIntError) -> Self {
-//         ConfigError {
-//             message: format!(
-//                 "unable to convert config value to specified integer type ({})",
-//                 value
-//             ),
-//         }
-//     }
-// }

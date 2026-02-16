@@ -58,7 +58,8 @@ async fn main() {
     // there's some duplicated work with the reporters being
     // initialized separately for each monitor and copied here
     let mut mons = Vec::new();
-    for m in config.monitor {
+    let monitors = config.monitor.expect("no monitors defined, exiting");
+    for m in monitors {
         info!("config parsed for monitor: {}", m.name);
         let mut mon = m.build();
 
