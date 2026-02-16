@@ -15,7 +15,7 @@ pub struct PagerdutyReporter {
     endpoint: String,
     routing_key: String,
     dedup_key: Option<String>,
-    source: Option<String>,
+    source: String,
     component: Option<String>,
     client: Option<String>,
     group: Option<String>,
@@ -58,8 +58,7 @@ struct PagerdutyPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     timestamp: Option<String>,
     severity: Severity,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    source: Option<String>,
+    source: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     component: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -92,7 +91,11 @@ impl PagerdutyReporterArgs {
             endpoint: self.endpoint,
             routing_key: self.routing_key,
             dedup_key: None,
-            source: self.source,
+            source: self.source.unwrap_or(
+                gethostname::gethostname()
+                    .into_string()
+                    .unwrap_or("".to_owned()),
+            ),
             component: self.component,
             client: self.client,
             group: self.group,
