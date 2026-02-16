@@ -19,17 +19,16 @@
 //! Also defines the Reporter async trait and MonitorResult struct
 //! that can be used to create new reporter modules.
 //!
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::process::{Command, ExitStatus};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
-use tracing::instrument;
 use tracing::{debug, error, info};
 
 use crate::db;
+use crate::reporters::Reporter;
+use crate::target::{Target, TargetArgs};
 
 /// Represents a monitor that executes a target and reports the result
 /// based on the current level
@@ -43,11 +42,10 @@ pub struct Monitor<'a> {
     success_tally: u64,
     target: Target,
     running: bool,
-    // db: Option<&'a tokio_rusqlite::Connection>,
     db: &'a db::SynthDb,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Clone, Deserialize, Debug)]
 pub struct MonitorArgs {
     pub name: String,
     pub interval: u64,
@@ -55,26 +53,28 @@ pub struct MonitorArgs {
     pub target: TargetArgs,
 }
 
-impl Monitor<'_> {
-    pub fn from_args(args: MonitorArgs) -> Self {
+impl MonitorArgs {
+    pub fn build<'a>(self) -> Monitor<'a> {
         let mut levels = Vec::new();
-        for l in args.level.into_iter() {
-            levels.push(Level::from_args(l))
+        for l in self.level.into_iter() {
+            levels.push(l.build())
         }
-        Self {
-            name: args.name,
-            interval: args.interval,
+        Monitor {
+            name: self.name.clone(),
+            interval: self.interval,
             levels,
             reporters: HashMap::new(),
             level_index: 0,
             failure_tally: 0,
             success_tally: 0,
-            target: Target::from_args(args.target),
+            target: self.target.build(),
             running: false,
             db: &db::SynthDb { db: None },
         }
     }
+}
 
+impl Monitor<'_> {
     /// Registers a new reporter to the monitor, referenced in levels by name
     pub fn register_reporter(
         &mut self,
@@ -353,7 +353,7 @@ struct Level {
     reporters: Vec<String>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Clone, Deserialize, Debug)]
 pub struct LevelArgs {
     name: String,
     errors_to_escalate: Option<u64>,
@@ -361,98 +361,15 @@ pub struct LevelArgs {
     reporters: Vec<String>,
 }
 
-impl Level {
-    fn from_args(args: LevelArgs) -> Self {
-        Self {
-            name: args.name,
-            errors_to_escalate: args.errors_to_escalate.unwrap_or(1),
-            successes_to_clear: args.successes_to_clear.unwrap_or(1),
-            reporters: args.reporters,
+impl LevelArgs {
+    fn build(self) -> Level {
+        Level {
+            name: self.name,
+            errors_to_escalate: self.errors_to_escalate.unwrap_or(1),
+            successes_to_clear: self.successes_to_clear.unwrap_or(1),
+            reporters: self.reporters,
         }
     }
-}
-
-/// A monitor execution target, such as a script or binary that produces
-/// some output and a 0 result code indicating success, and >0 for failure.
-/// Command-line arguments are provided by a vec of strings, and environment
-/// variables by a vec of (String, String) tuples
-#[derive(Debug)]
-struct Target {
-    path: String,
-    args: Option<Vec<String>>,
-    env: Option<Vec<(String, String)>>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct TargetArgs {
-    pub path: String,
-    pub args: Option<Vec<String>>,
-    pub env: Option<Vec<(String, String)>>,
-}
-
-#[derive(Debug)]
-struct TargetOutput {
-    stdout: String,
-    stderr: String,
-    duration: u64,
-    status: ExitStatus,
-}
-
-impl Target {
-    fn from_args(args: TargetArgs) -> Self {
-        Self {
-            path: args.path,
-            args: args.args,
-            env: args.env,
-        }
-    }
-
-    /// Run the target, returning duration and other execution details
-    #[instrument(level=tracing::Level::DEBUG)]
-    fn run(&self) -> Result<TargetOutput, String> {
-        // let env = self.env.clone();
-        // let args = self.env.clone().unwrap_or()
-        let start = Instant::now();
-        let mut cmd = Command::new(&self.path);
-        // let output = cmd;
-        if let Some(env) = self.env.clone() {
-            cmd.envs(env);
-        }
-        if let Some(args) = self.args.clone() {
-            cmd.args(args);
-        }
-        // .args(&self.args)
-        // .envs(env)
-        let output = cmd
-            .output()
-            .map_err(|e| format!("failed to run target ({0})", e))?;
-        let stop = Instant::now();
-        let duration = (stop - start).as_micros() as u64;
-        let status = output.status;
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-        let out = TargetOutput {
-            stdout,
-            stderr,
-            duration,
-            status,
-        };
-        // dbg!(&out);
-        Ok(out)
-    }
-}
-
-pub type ReporterArgs = toml::Table;
-
-/// Reporters have an async report() function that handles a monitor result
-/// taking care of any formatting and delivery required
-#[async_trait]
-pub trait Reporter {
-    async fn report(&mut self, _: &MonitorResult);
-    async fn clear(&mut self, _: &MonitorResult);
-    fn get_state(&self) -> Option<Vec<u8>>;
-    fn load_state(&mut self, _: Vec<u8>);
 }
 
 /// Result returned from a single execution of a monitor target
@@ -467,5 +384,4 @@ pub struct MonitorResult {
     pub stderr: String,
     pub duration: u64,
     pub status: i32,
-    // pub tags: Option<Vec<(String, String)>>,
 }

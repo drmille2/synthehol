@@ -1,12 +1,21 @@
-use crate::monitor::{MonitorResult, Reporter};
+use crate::{monitor::MonitorResult, reporters::Reporter};
 use async_trait::async_trait;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, warn};
 
 #[derive(Debug)]
 pub struct SlackReporter {
-    webhook_url: String,
     renderer: upon::Engine<'static>,
+    webhook_url: String,
+    report_tmpl: String,
+    clear_tmpl: String,
+}
+
+#[derive(Clone, Deserialize, Debug)]
+pub struct SlackReporterArgs {
+    webhook_url: String,
+    report_tmpl: Option<String>,
+    clear_tmpl: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -26,38 +35,26 @@ struct SlackSectionBlock {
     text: SlackTextBlock,
 }
 
+impl SlackReporterArgs {
+    pub fn build(self) -> Result<SlackReporter, upon::Error> {
+        let mut r = SlackReporter {
+            renderer: upon::Engine::new(),
+            webhook_url: self.webhook_url,
+            report_tmpl: self.report_tmpl.unwrap_or(DEF_REPORT_TEMPLATE.to_owned()),
+            clear_tmpl: self.clear_tmpl.unwrap_or(DEF_CLEAR_TEMPLATE.to_owned()),
+        };
+        r.initialize()?;
+        Ok(r)
+    }
+}
+
 impl SlackReporter {
-    pub fn from_toml(config: &toml::Table) -> Result<Self, String> {
-        let webhook_url = config["webhook_url"]
-            .as_str()
-            // this maps option to our expected result so we can ?
-            .ok_or("missing Slack webhook_url config item")?;
-        let webhook_url = String::from(webhook_url);
-        let mut report_tmpl = DEF_REPORT_TEMPLATE.to_string();
-        if config.contains_key("report_template") {
-            report_tmpl = config["report_template"]
-                .as_str()
-                .ok_or("failed to convert slack report template to string")?
-                .to_string();
-        }
-        let clear_tmpl = DEF_CLEAR_TEMPLATE.to_string();
-        if config.contains_key("clear_template") {
-            report_tmpl = config["clear_template"]
-                .as_str()
-                .ok_or("failed to convert slack clear template to string")?
-                .to_string();
-        }
-        let mut renderer = upon::Engine::new();
-        renderer
-            .add_template("report", report_tmpl)
-            .map_err(|e| format!("failed to register slack report template ({0})", e))?;
-        renderer
-            .add_template("clear", clear_tmpl)
-            .map_err(|e| format!("failed to register slack clear template ({0})", e))?;
-        Ok(Self {
-            webhook_url,
-            renderer,
-        })
+    fn initialize(&mut self) -> Result<(), upon::Error> {
+        self.renderer
+            .add_template("report", self.report_tmpl.clone())?;
+        self.renderer
+            .add_template("clear", self.clear_tmpl.clone())?;
+        Ok(())
     }
 
     #[instrument]
